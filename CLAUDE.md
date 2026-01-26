@@ -24,10 +24,15 @@ Raspberry Pi Pico
 - **SDK**: Pico SDK (C/C++)
 - **ビルド**: CMake + Make
 
-## ピン配置（予定）
-- **UART TX (CRSF)**: GPxx → Nano TX モジュール
-- **USB Host**: Pico の USB ポート（ゲームパッド接続）
-- **USB Device**: デバッグ/ログ用（picoprobe または USB CDC）
+## ピン配置
+| Picoピン | 機能 | 接続先 |
+|----------|------|--------|
+| USB | USB Host | ゲームパッド |
+| GP0 | UART0 TX | Nano TX (CRSF 420kbps) |
+| GP1 | UART0 RX | (未使用) |
+| GP4 | UART1 TX | PC (デバッグ 115200bps) |
+| GP5 | UART1 RX | PC |
+| LED | 状態表示 | 接続時:点灯 / 未接続:点滅 |
 
 ## CRSFプロトコル
 - ボーレート: 420000 bps

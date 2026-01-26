@@ -27,8 +27,11 @@ Raspberry Pi Pico
 | Pico Pin | 接続先 | 説明 |
 |----------|--------|------|
 | USB | ゲームパッド | USB Host |
-| GPxx (UART TX) | Nano TX | CRSF出力 (420kbps) |
-| GPxx (UART) | PC | デバッグ/ログ (115200bps) |
+| GP0 (UART0 TX) | Nano TX | CRSF出力 (420kbps) |
+| GP1 (UART0 RX) | - | 未使用 |
+| GP4 (UART1 TX) | PC | デバッグ出力 (115200bps) |
+| GP5 (UART1 RX) | PC | デバッグ入力 |
+| LED | - | 状態表示（接続:点灯/未接続:点滅） |
 
 ## ビルド
 
@@ -135,15 +138,23 @@ expresslrs_realtime_recorder/
 - Sony DualShock 4（専用パーサー）
 - 汎用HIDゲームパッド
 
-## チャンネルマッピング
+## チャンネルマッピング (Mode 2)
 
-| CRSFチャンネル | ゲームパッド入力 |
-|---------------|-----------------|
-| CH1 (Roll) | 右スティック X |
-| CH2 (Pitch) | 右スティック Y |
-| CH3 (Throttle) | 左スティック Y |
-| CH4 (Yaw) | 左スティック X |
-| CH5-8 | トリガー/ボタン |
+| CRSFチャンネル | ゲームパッド入力 | 備考 |
+|---------------|-----------------|------|
+| CH1 (Roll) | 右スティック X | |
+| CH2 (Pitch) | 右スティック Y | 反転 |
+| CH3 (Throttle) | 左スティック Y | 反転 |
+| CH4 (Yaw) | 左スティック X | |
+| CH5 | L2トリガー | |
+| CH6 | R2トリガー | |
+| CH7 (Arm) | Aボタン (Cross) | ON/OFF |
+| CH8 | Bボタン (Circle) | ON/OFF |
+| CH9 | Xボタン (Square) | ON/OFF |
+| CH10 | Yボタン (Triangle) | ON/OFF |
+| CH11 | LBボタン (L1) | ON/OFF |
+| CH12 | RBボタン (R1) | ON/OFF |
+| CH13-16 | 未使用 | 中央値固定 |
 
 ## 参考資料
 
