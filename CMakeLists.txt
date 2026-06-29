@@ -96,6 +96,18 @@ else()
     pico_enable_stdio_usb(expresslrs_realtime_recorder 0)
     pico_enable_stdio_uart(expresslrs_realtime_recorder 1)
 
+    # stdio(printf/getchar) を uart1 = GP4(TX)/GP5(RX) にルーティング。
+    # デフォルトの uart0(GP0) のままだと CRSF 出力線(GP0)に printf が混入し
+    # CRSF 信号を破壊するため必須。
+    # ボーレートは値確認ストリームの帯域確保のため 921600 に設定
+    # （500Hz=2ms周期で1行を取りこぼさず出力するため）。
+    target_compile_definitions(expresslrs_realtime_recorder PRIVATE
+        PICO_DEFAULT_UART=1
+        PICO_DEFAULT_UART_TX_PIN=4
+        PICO_DEFAULT_UART_RX_PIN=5
+        PICO_DEFAULT_UART_BAUD_RATE=921600
+    )
+
     # UF2ファイル生成
     pico_add_extra_outputs(expresslrs_realtime_recorder)
 endif()

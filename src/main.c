@@ -26,10 +26,15 @@
 #define CRSF_INVERT_SIGNAL  1
 
 // デバッグ用UART
+// stdio(printf/getchar) は CMake の PICO_DEFAULT_UART=1 設定により
+// uart1 = GP4(TX)/GP5(RX) @921600bps にルーティングされる。
 #define DEBUG_UART      uart1
 #define DEBUG_UART_TX   4   // GP4
 #define DEBUG_UART_RX   5   // GP5
-#define DEBUG_BAUD_RATE 115200
+#define DEBUG_BAUD_RATE 921600
+
+// 連続ストリーム(C)の間引き: 500Hz / 20 = 25Hz で出力
+#define DEBUG_STREAM_DECIMATION 20
 
 // LED（状態表示用）
 #define LED_PIN         PICO_DEFAULT_LED_PIN
@@ -54,6 +59,20 @@ static uint32_t last_crsf_send_time = 0;
 
 // ログカウンタ
 static uint32_t log_counter = 0;
+
+// ========================================
+// デバッグ/値確認の状態
+// ========================================
+
+// 'd' コマンドで次フレームの全段スナップショットを要求
+static bool dbg_snapshot_request = false;
+// 's' コマンドで連続ストリーム(C)をON/OFF（デフォルトOFF）
+static bool dbg_stream_enabled = false;
+// ストリーム間引きカウンタ
+static uint16_t dbg_stream_counter = 0;
+// 直近のドレインで読み捨てたテレメトリ（スナップショット(6)用）
+static uint8_t dbg_drain_buf[32];
+static uint16_t dbg_drain_len = 0;
 
 // ========================================
 // チャンネルマッピング
@@ -116,11 +135,15 @@ static void crsf_drain_telemetry(void) {
     // バス上のバイトを読み捨てる。半二重では自分の送信エコーもRX FIFOに
     // 入るため必ず排出する必要がある（放置するとFIFOが溢れる）。
     // 500Hz(2ms)の送信周期を崩さないよう、ドレイン総時間に上限を設ける。
+    dbg_drain_len = 0;  // スナップショット用に読み捨てたバイトを記録
     absolute_time_t deadline = make_timeout_time_us(300);  // 最大300us
     int idle_us = 0;
     while (idle_us < 60) {  // 連続60usアイドルで応答途切れと判断
         if (uart_is_readable(CRSF_UART)) {
-            (void)uart_getc(CRSF_UART);
+            uint8_t b = uart_getc(CRSF_UART);
+            if (dbg_drain_len < sizeof(dbg_drain_buf)) {
+                dbg_drain_buf[dbg_drain_len++] = b;
+            }
             idle_us = 0;
         } else {
             if (time_reached(deadline)) {
@@ -137,6 +160,9 @@ static void crsf_drain_telemetry(void) {
 // ========================================
 
 static void debug_log_channels(void) {
+    // ストリーム有効時はヒートビートを抑制（ビューア出力を汚さない）
+    if (dbg_stream_enabled) return;
+
     // 1秒ごとにログ出力
     log_counter++;
     if (log_counter >= (1000 / CRSF_SEND_INTERVAL_MS)) {
@@ -149,6 +175,93 @@ static void debug_log_channels(void) {
                crsf_channels[0], crsf_channels[1],
                crsf_channels[2], crsf_channels[3],
                gp->buttons);
+    }
+}
+
+// ========================================
+// 値確認: スナップショット(A) / ストリーム(C) / コマンド
+// ========================================
+
+// (A) 1フレームの全処理ポイントをHEX付きでダンプ
+//   ① 生HIDレポート → ② デコード後state → ③ CRSFチャンネル
+//   → ④ パック後payload → ⑤ フレーム全体+CRC検証 → ⑥ ドレインしたテレメトリ
+static void dbg_dump_snapshot(const uint8_t *frame, size_t frame_len) {
+    const gamepad_state_t *gp = usb_gamepad_get_state();
+    const uint8_t *raw = NULL;
+    uint16_t raw_len = usb_gamepad_get_raw_report(&raw);
+
+    printf("\n========== SNAPSHOT ==========\n");
+
+    // ① 生HIDレポート
+    printf("(1) HID raw [%u]:", raw_len);
+    for (uint16_t i = 0; i < raw_len && raw; i++) printf(" %02X", raw[i]);
+    printf("\n");
+
+    // ② デコード後 gamepad_state
+    printf("(2) state: LX=%d LY=%d RX=%d RY=%d L2=%d R2=%d BTN=0x%04X conn=%d VID=%04X PID=%04X\n",
+           gp->axes[GAMEPAD_AXIS_LX], gp->axes[GAMEPAD_AXIS_LY],
+           gp->axes[GAMEPAD_AXIS_RX], gp->axes[GAMEPAD_AXIS_RY],
+           gp->axes[GAMEPAD_AXIS_L2], gp->axes[GAMEPAD_AXIS_R2],
+           gp->buttons, gp->connected, gp->vid, gp->pid);
+
+    // ③ CRSFチャンネル（normalize後）
+    printf("(3) CRSF ch:");
+    for (int i = 0; i < CRSF_NUM_CHANNELS; i++) printf(" %d", crsf_channels[i]);
+    printf("\n");
+
+    // ④ パック後payload（22バイト）
+    printf("(4) payload[22]:");
+    for (int i = 0; i < CRSF_RC_CHANNELS_PACKED_PAYLOAD_SIZE; i++) printf(" %02X", frame[3 + i]);
+    printf("\n");
+
+    // ⑤ フレーム全体 + CRC検証
+    printf("(5) frame[%u]:", (unsigned)frame_len);
+    for (size_t i = 0; i < frame_len; i++) printf(" %02X", frame[i]);
+    uint8_t crc_calc = crsf_crc8(&frame[2], CRSF_RC_CHANNELS_PACKED_PAYLOAD_SIZE + 1);
+    uint8_t crc_pkt = frame[frame_len - 1];
+    printf("\n    SYNC=%02X LEN=%u TYPE=%02X CRC=%02X (calc=%02X %s)\n",
+           frame[0], frame[1], frame[2], crc_pkt, crc_calc,
+           (crc_pkt == crc_calc) ? "OK" : "NG");
+
+    // ⑥ ドレインしたテレメトリ
+    printf("(6) drained telemetry [%u]:", dbg_drain_len);
+    for (uint16_t i = 0; i < dbg_drain_len; i++) printf(" %02X", dbg_drain_buf[i]);
+    printf("\n==============================\n");
+}
+
+// (C) 連続ストリーム: PCビューア向けの1行CSV（プレフィックス "D,"）
+//   D,conn,a0..a5,btn,ch0..ch15
+static void dbg_stream_frame(void) {
+    if (!dbg_stream_enabled) return;
+    if (++dbg_stream_counter < DEBUG_STREAM_DECIMATION) return;
+    dbg_stream_counter = 0;
+
+    const gamepad_state_t *gp = usb_gamepad_get_state();
+    printf("D,%d", gp->connected ? 1 : 0);
+    for (int i = 0; i < 6; i++) printf(",%d", gp->axes[i]);
+    printf(",%u", gp->buttons);
+    for (int i = 0; i < CRSF_NUM_CHANNELS; i++) printf(",%d", crsf_channels[i]);
+    printf("\n");
+}
+
+// デバッグUART RX(GP5)からのコマンドを処理（非ブロッキング）
+static void dbg_poll_commands(void) {
+    int c;
+    while ((c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
+        switch (c) {
+            case 'd': case 'D':
+                dbg_snapshot_request = true;
+                break;
+            case 's': case 'S':
+                dbg_stream_enabled = !dbg_stream_enabled;
+                printf("# stream %s\n", dbg_stream_enabled ? "ON" : "OFF");
+                break;
+            case '?':
+                printf("# commands: d=snapshot  s=toggle stream  ?=help\n");
+                break;
+            default:
+                break;
+        }
     }
 }
 
@@ -176,15 +289,8 @@ static void init_crsf_uart(void) {
     printf("CRSF UART initialized: %d bps on GP%d\n", CRSF_BAUD_RATE, CRSF_UART_TX);
 }
 
-static void init_debug_uart(void) {
-    // デバッグ用UART初期化
-    uart_init(DEBUG_UART, DEBUG_BAUD_RATE);
-    gpio_set_function(DEBUG_UART_TX, GPIO_FUNC_UART);
-    gpio_set_function(DEBUG_UART_RX, GPIO_FUNC_UART);
-
-    // stdoutをUART1にリダイレクト
-    // (stdio_uart_init_fullでも可)
-}
+// デバッグUART(uart1/GP4-5) は stdio_init_all() が CMake の
+// PICO_DEFAULT_UART=1 設定に従って初期化するため、ここでの個別初期化は不要。
 
 static void init_led(void) {
     gpio_init(LED_PIN);
@@ -232,6 +338,9 @@ int main() {
         // TinyUSB Hostタスク処理
         usb_gamepad_task();
 
+        // デバッグUARTからのコマンド処理（d=snapshot, s=stream, ?=help）
+        dbg_poll_commands();
+
         // 現在時刻を取得
         uint32_t now = to_ms_since_boot(get_absolute_time());
 
@@ -259,7 +368,16 @@ int main() {
             // 半二重バス上のテレメトリ応答を読み捨てて衝突を防ぐ
             crsf_drain_telemetry();
 
-            // デバッグログ
+            // (C) 連続ストリーム（有効時のみ、間引き出力）
+            dbg_stream_frame();
+
+            // (A) スナップショット要求があれば全段ダンプ
+            if (dbg_snapshot_request) {
+                dbg_snapshot_request = false;
+                dbg_dump_snapshot(crsf_packet, len);
+            }
+
+            // デバッグログ（1秒ごとのヒートビート）
             debug_log_channels();
         }
     }

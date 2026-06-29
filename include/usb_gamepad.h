@@ -84,6 +84,13 @@ void usb_gamepad_set_callback(gamepad_callback_t callback);
  */
 bool usb_gamepad_is_connected(void);
 
+/**
+ * 最後に受信した生HIDレポートを取得（デバッグ/値確認用）
+ * @param report_out レポート先頭へのポインタを格納（NULL可）
+ * @return レポート長（バイト数）。未受信時は0。
+ */
+uint16_t usb_gamepad_get_raw_report(const uint8_t **report_out);
+
 // ユーティリティ関数
 
 /**

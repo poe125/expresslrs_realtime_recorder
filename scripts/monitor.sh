@@ -1,10 +1,12 @@
 #!/bin/bash
 # シリアルモニタースクリプト
-# PicoのUSB CDCシリアル出力を表示
+# Pico のデバッグUART(GP4/5) 出力を表示
+# コマンド: d=スナップショット, s=ストリームON/OFF, ?=ヘルプ
+# リアルタイムのバーゲージ表示は scripts/live_view.py を使用
 
 set -e
 
-BAUD_RATE="${1:-115200}"
+BAUD_RATE="${1:-921600}"
 
 echo "=== ExpressLRS Realtime Recorder Serial Monitor ==="
 echo "Baud rate: $BAUD_RATE"

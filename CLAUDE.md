@@ -60,5 +60,22 @@ Raspberry Pi Pico
 ```bash
 ./scripts/monitor.sh [ボーレート]
 ```
-- デフォルト: 115200 bps
+- デフォルト: 921600 bps（デバッグUART GP4/5）
 - 終了: `Ctrl+A`, `K` (screenの場合)
+- コマンド入力: `d`=スナップショット, `s`=連続ストリームON/OFF, `?`=ヘルプ
+
+### リアルタイム値ビューア（方式C）
+```bash
+python3 scripts/live_view.py [--port /dev/tty.usbmodemXXXX] [--baud 921600]
+```
+- 各CRSFチャンネルをバーゲージでライブ表示（要 `pip install pyserial`）
+- キー: `s`=ストリーム, `d`=スナップショット, `q`=終了
+
+## デバッグ/値確認の仕組み
+処理パイプラインの各ポイントで値を検証できる:
+①生HIDレポート → ②デコード後state → ③CRSFチャンネル → ④パック後payload →
+⑤フレーム全体+CRC検証 → ⑥ドレインしたテレメトリ
+
+- **スナップショット(A)**: `d` で次の1フレームの①〜⑥を全段HEXダンプ（CRC一致もOK/NG表示）
+- **連続ストリーム(C)**: `s` でON/OFF。25Hzで `D,...` CSVを出力し `live_view.py` が描画。デフォルトOFF（実飛行時はオーバーヘッド0）
+- デバッグUARTは500Hz送信を崩さないよう921600bpsで運用（1行≈1.4ms < 2ms）

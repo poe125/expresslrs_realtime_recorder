@@ -16,6 +16,10 @@ static gamepad_callback_t state_callback = NULL;
 static uint8_t hid_dev_addr = 0;
 static uint8_t hid_instance = 0;
 
+// 最後に受信した生HIDレポート（デバッグ/値確認用）
+static uint8_t last_raw_report[64];
+static uint16_t last_raw_len = 0;
+
 void usb_gamepad_init(void) {
     board_init();
     tusb_init();
@@ -44,6 +48,13 @@ void usb_gamepad_set_callback(gamepad_callback_t callback) {
 
 bool usb_gamepad_is_connected(void) {
     return gamepad_state.connected;
+}
+
+uint16_t usb_gamepad_get_raw_report(const uint8_t **report_out) {
+    if (report_out) {
+        *report_out = last_raw_report;
+    }
+    return last_raw_len;
 }
 
 // 汎用ゲームパッドのHIDレポート解析
@@ -167,6 +178,13 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
 // TinyUSB コールバック: HIDレポートを受信した
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
                                 uint8_t const *report, uint16_t len) {
+    // 生レポートを保存（デバッグ/値確認用）
+    uint16_t copy_len = (len > sizeof(last_raw_report)) ? sizeof(last_raw_report) : len;
+    for (uint16_t i = 0; i < copy_len; i++) {
+        last_raw_report[i] = report[i];
+    }
+    last_raw_len = copy_len;
+
     // Sony DualShock 4 を検出
     if (gamepad_state.vid == 0x054C &&
         (gamepad_state.pid == 0x09CC || gamepad_state.pid == 0x05C4)) {
@@ -210,6 +228,14 @@ void usb_gamepad_set_callback(gamepad_callback_t callback) {
 
 bool usb_gamepad_is_connected(void) {
     return gamepad_state.connected;
+}
+
+uint16_t usb_gamepad_get_raw_report(const uint8_t **report_out) {
+    // スタブ: 生レポートは保持しない
+    if (report_out) {
+        *report_out = NULL;
+    }
+    return 0;
 }
 
 // テスト用: ゲームパッド状態を設定
