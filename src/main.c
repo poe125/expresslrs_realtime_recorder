@@ -16,8 +16,14 @@
 // CRSF出力用UART（Nano TX Moduleへ）
 #define CRSF_UART       uart0
 #define CRSF_UART_TX    0   // GP0
-#define CRSF_UART_RX    1   // GP1 (受信は使用しないが設定は必要)
-#define CRSF_BAUD_RATE  420000
+#define CRSF_UART_RX    1   // GP1 (半二重テレメトリ受信に使用)
+// ELRS V3.x の BetaFPV Nano TX Module V2 は 921600bps
+// （旧来のレシーバ直結用 420000 ではなくモジュール用の高速ボーレート）
+#define CRSF_BAUD_RATE  921600
+
+// Nano TX V2 の S.Port は反転UART。Pico側でTX/RXを反転する。
+// （senderでは Pi の dtoverlay で反転していたのと同等の処理）
+#define CRSF_INVERT_SIGNAL  1
 
 // デバッグ用UART
 #define DEBUG_UART      uart1
@@ -34,7 +40,7 @@
 
 // CRSF送信間隔（ミリ秒）
 // ExpressLRS 500Hz = 2ms間隔
-#define CRSF_SEND_INTERVAL_MS  4  // 250Hz（安定性重視）
+#define CRSF_SEND_INTERVAL_MS  2  // 500Hz（senderと同じ。ELRS V3.x標準）
 
 // ========================================
 // グローバル変数
@@ -99,6 +105,33 @@ static void crsf_uart_send(const uint8_t *data, size_t len) {
     uart_write_blocking(CRSF_UART, data, len);
 }
 
+// 半二重テレメトリドレイン
+// Nano TX V2 は S.Port 1本の半二重通信。RCフレーム送信後に
+// モジュールが返すテレメトリを読み捨てないと、次回送信時に
+// バス衝突が起き ch5〜ch16 が化ける（senderのdrainTelemetry相当）。
+static void crsf_drain_telemetry(void) {
+    // 送信完了をハードウェア的に保証（最後のビットが線上に出るまで待つ）
+    uart_tx_wait_blocking(CRSF_UART);
+
+    // バス上のバイトを読み捨てる。半二重では自分の送信エコーもRX FIFOに
+    // 入るため必ず排出する必要がある（放置するとFIFOが溢れる）。
+    // 500Hz(2ms)の送信周期を崩さないよう、ドレイン総時間に上限を設ける。
+    absolute_time_t deadline = make_timeout_time_us(300);  // 最大300us
+    int idle_us = 0;
+    while (idle_us < 60) {  // 連続60usアイドルで応答途切れと判断
+        if (uart_is_readable(CRSF_UART)) {
+            (void)uart_getc(CRSF_UART);
+            idle_us = 0;
+        } else {
+            if (time_reached(deadline)) {
+                break;
+            }
+            busy_wait_us(10);
+            idle_us += 10;
+        }
+    }
+}
+
 // ========================================
 // デバッグログ
 // ========================================
@@ -132,6 +165,13 @@ static void init_crsf_uart(void) {
     // 8N1設定
     uart_set_format(CRSF_UART, 8, 1, UART_PARITY_NONE);
     uart_set_fifo_enabled(CRSF_UART, true);
+
+#if CRSF_INVERT_SIGNAL
+    // Nano TX V2 の S.Port は反転UART。TX出力とRX入力を反転する。
+    gpio_set_outover(CRSF_UART_TX, GPIO_OVERRIDE_INVERT);
+    gpio_set_inover(CRSF_UART_RX, GPIO_OVERRIDE_INVERT);
+    printf("CRSF UART signal inversion: ON\n");
+#endif
 
     printf("CRSF UART initialized: %d bps on GP%d\n", CRSF_BAUD_RATE, CRSF_UART_TX);
 }
@@ -215,6 +255,9 @@ int main() {
             // CRSFパケットを生成して送信
             size_t len = crsf_build_rc_channels_packet(crsf_channels, crsf_packet);
             crsf_uart_send(crsf_packet, len);
+
+            // 半二重バス上のテレメトリ応答を読み捨てて衝突を防ぐ
+            crsf_drain_telemetry();
 
             // デバッグログ
             debug_log_channels();

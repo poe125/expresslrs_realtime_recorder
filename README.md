@@ -9,7 +9,7 @@ Raspberry Pi PicoでゲームパッドのUSB HID入力を取得し、CRSFプロ�
 USBゲームパッド
     ↓ USB Host (HID)
 Raspberry Pi Pico
-    ├→ UART TX (CRSF 420kbps) → BetaFPV Nano TX Module V2 → ExpressLRS → BetaFPV Pavo Pico
+    ├→ UART TX (CRSF 921.6kbps 反転) → BetaFPV Nano TX Module V2 → ExpressLRS → BetaFPV Pavo Pico
     └→ UART (115200bps) → PC (フライトログ記録)
 ```
 
@@ -27,7 +27,7 @@ Raspberry Pi Pico
 | Pico Pin | 接続先 | 説明 |
 |----------|--------|------|
 | USB | ゲームパッド | USB Host |
-| GP0 (UART0 TX) | Nano TX | CRSF出力 (420kbps) |
+| GP0 (UART0 TX) | Nano TX | CRSF出力 (921.6kbps 反転) |
 | GP1 (UART0 RX) | - | 未使用 |
 | GP4 (UART1 TX) | PC | デバッグ出力 (115200bps) |
 | GP5 (UART1 RX) | PC | デバッグ入力 |
@@ -120,7 +120,9 @@ expresslrs_realtime_recorder/
 
 | 項目 | 値 |
 |------|-----|
-| ボーレート | 420,000 bps |
+| ボーレート | 921,600 bps（Nano TX V2 モジュール用。レシーバ直結は420,000） |
+| 信号 | 反転UART（Nano TX V2 の S.Port） |
+| 通信方式 | 半二重（送信後テレメトリをドレイン） |
 | フレームタイプ | 0x16 (RC Channels Packed) |
 | チャンネル数 | 16 |
 | チャンネル解像度 | 11bit (0-2047) |

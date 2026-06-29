@@ -28,14 +28,16 @@ Raspberry Pi Pico
 | Picoピン | 機能 | 接続先 |
 |----------|------|--------|
 | USB | USB Host | ゲームパッド |
-| GP0 | UART0 TX | Nano TX (CRSF 420kbps) |
+| GP0 | UART0 TX | Nano TX (CRSF 921.6kbps, 反転) |
 | GP1 | UART0 RX | (未使用) |
 | GP4 | UART1 TX | PC (デバッグ 115200bps) |
 | GP5 | UART1 RX | PC |
 | LED | 状態表示 | 接続時:点灯 / 未接続:点滅 |
 
 ## CRSFプロトコル
-- ボーレート: 420000 bps
+- ボーレート: 921600 bps（ELRS V3.x の Nano TX V2 モジュール用。レシーバ直結は420000）
+- 信号: Nano TX V2 の S.Port は反転UART（Pico側で反転）
+- 半二重: RCフレーム送信後にテレメトリ応答を読み捨ててバス衝突を防止
 - パケット形式: [SYNC][LEN][TYPE][PAYLOAD][CRC]
 - 主要フレームタイプ:
   - 0x16: RC Channels Packed (16ch, 11bit each)
