@@ -8,6 +8,14 @@
 
 #include "tusb.h"
 #include "bsp/board_api.h"
+#include "pico/time.h"
+
+// TinyUSB(OS_NONE構成)が要求する時刻API。
+// tusb.h で「API Implemented by user」とされ、RTOSなし構成では
+// アプリ側で実装する必要がある（rp2040 BSPは未提供）。
+uint32_t tusb_time_millis_api(void) {
+    return to_ms_since_boot(get_absolute_time());
+}
 
 static gamepad_state_t gamepad_state = {0};
 static gamepad_callback_t state_callback = NULL;
