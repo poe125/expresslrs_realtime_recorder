@@ -168,6 +168,17 @@ static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
     crsf_channels[15] = CRSF_CHANNEL_MID;
 }
 
+// 入力喪失時（ゲームパッド切断）に送るフェイルセーフ値。
+// TXモジュールはリンクを張り続けるため受信機側のfailsafeは効かない。
+// こちらで明示的に安全値（スロットル最小・Arm解除・スティック中央）を送る。
+static void set_failsafe_channels(void) {
+    for (int i = 0; i < CRSF_NUM_CHANNELS; i++) {
+        crsf_channels[i] = CRSF_CHANNEL_MID;
+    }
+    crsf_channels[2] = CRSF_CHANNEL_MIN;  // CH3 Throttle 最小
+    crsf_channels[6] = CRSF_CHANNEL_MIN;  // CH7 Arm 解除（最重要: モーター停止）
+}
+
 // ========================================
 // UART送信
 // ========================================
@@ -521,7 +532,9 @@ int main() {
                         map_gamepad_to_channels(gamepad);
                         gpio_put(LED_PIN, 1);  // 接続中: 内蔵LED点灯
                     } else {
-                        // 未接続: 最後の値を維持（TODO: フェイルセーフでスロットル最小へ）
+                        // 未接続: フェイルセーフ値を送出（スロットル最小・Arm解除）。
+                        // 最後の値を送り続けると機体がリンク正常と誤認するため。
+                        set_failsafe_channels();
                         gpio_put(LED_PIN, (now / 500) % 2);  // 点滅
                     }
                     // 記録: 現在の16chを記録器へ（内部で50Hz間引き＋ボタンラッチ）
