@@ -52,6 +52,8 @@
 #define LED_SIMPLE_PIN   12  // 青: 単純
 // ボタンのデバウンス時間
 #define MODE_BTN_DEBOUNCE_MS 30
+// 長押し判定のしきい値（これ以上保持で「長押し」= 再生start/stop）
+#define MODE_BTN_LONG_MS     600
 
 // 動作モード（押下で SIMPLE→RECORD→PLAYBACK→SIMPLE… と循環）
 typedef enum {
@@ -64,14 +66,30 @@ typedef enum {
 // 起動時は最も安全な単純パススルー。誤って再生で機体を駆動しないため。
 static op_mode_t current_mode = MODE_SIMPLE;
 
-// ボタン状態（デバウンス用）
+// ボタン状態（デバウンス＋短押し/長押し判別用）
 static bool     btn_pressed_state = false;   // 確定済みの押下状態
 static uint32_t btn_last_change_ms = 0;
+static uint32_t btn_press_start_ms = 0;      // 押下開始時刻
+static bool     btn_long_fired = false;      // 今回の押下で長押しアクション済みか
 
-// 再生状態（PLAYBACKモードで 'p' コマンドにより開始/停止）
+// 再生状態（PLAYBACKモードで長押し or 'p' コマンドにより開始/停止）
 static bool     playback_running = false;
 static uint32_t pb_sample_idx = 0;   // 次に送出するフラッシュサンプル番号
 static uint16_t pb_frame_ctr = 0;    // 50Hz送出のための500Hzフレームカウンタ
+
+// 再生の開始/停止をトグル（PLAYBACKモードでのみ有効）。
+// long-press と 'p' コマンドの両方から使う共通処理。
+static void playback_toggle(void) {
+    if (current_mode != MODE_PLAYBACK) {
+        printf("# playback toggle ignored (not in PLAYBACK mode)\n");
+        return;
+    }
+    playback_running = !playback_running;
+    if (playback_running) { pb_sample_idx = 0; pb_frame_ctr = 0; }
+    printf("# playback %s (%u samples)\n",
+           playback_running ? "START" : "STOP",
+           (unsigned)recorder_flash_sample_count());
+}
 
 // ========================================
 // CRSF送信設定
@@ -291,19 +309,12 @@ static void dbg_poll_commands(void) {
                 printf("# stream %s\n", dbg_stream_enabled ? "ON" : "OFF");
                 break;
             case 'p': case 'P':
-                // PLAYBACKモードでのみ再生をstart/stop
-                if (current_mode == MODE_PLAYBACK) {
-                    playback_running = !playback_running;
-                    if (playback_running) { pb_sample_idx = 0; pb_frame_ctr = 0; }
-                    printf("# playback %s (%u samples)\n",
-                           playback_running ? "START" : "STOP",
-                           (unsigned)recorder_flash_sample_count());
-                } else {
-                    printf("# 'p' is only valid in PLAYBACK mode\n");
-                }
+                playback_toggle();  // PLAYBACKモードでのみ有効
                 break;
             case '?':
                 printf("# commands: d=snapshot  s=toggle stream  p=play/stop(PLAYBACK)  ?=help\n");
+                printf("# button: short=cycle mode  long(%.1fs)=play/stop in PLAYBACK\n",
+                       MODE_BTN_LONG_MS / 1000.0);
                 break;
             default:
                 break;
@@ -378,40 +389,63 @@ static void init_mode_io(void) {
     update_mode_leds();
 }
 
-// ボタンをポーリングし、デバウンス後の立ち下がり（押した瞬間）で
-// モードを1つ進める。500Hzループを妨げないよう非ブロッキング。
+// モードを1つ進め、記録の開始/停止など遷移に伴う処理を行う（短押し時）。
+static void mode_advance(void) {
+    op_mode_t prev = current_mode;
+    current_mode = (op_mode_t)((current_mode + 1) % MODE_COUNT);
+    update_mode_leds();
+    printf("# mode -> %s\n", mode_name(current_mode));
+
+    // RECORDから抜けたら記録停止＋フラッシュ書出し
+    if (prev == MODE_RECORD && current_mode != MODE_RECORD) {
+        size_t n = recorder_stop_and_flush();
+        printf("# recording stopped, flushed %u samples to flash\n", (unsigned)n);
+    }
+    // RECORDに入ったら記録開始（バッファクリア）
+    if (current_mode == MODE_RECORD && prev != MODE_RECORD) {
+        recorder_start();
+        printf("# recording started\n");
+    }
+    // PLAYBACKに入ったら再生を待機状態にし、保存済みサンプル数を表示
+    if (current_mode == MODE_PLAYBACK) {
+        playback_running = false;
+        pb_sample_idx = 0;
+        pb_frame_ctr = 0;
+        printf("# playback ready: %u samples in flash (long-press or 'p' to play)\n",
+               (unsigned)recorder_flash_sample_count());
+    }
+}
+
+// ボタンをポーリング（非ブロッキング）。
+//   短押し（長押し未満で離す）= モードを1つ進める
+//   長押し（MODE_BTN_LONG_MS 保持）= PLAYBACK中なら再生start/stop
+// 長押し中はモード循環を抑止する。
 static void poll_mode_button(void) {
     bool raw = (gpio_get(MODE_BTN_PIN) == 0);  // 押下=true
     uint32_t now = to_ms_since_boot(get_absolute_time());
 
-    // 前回確定状態と異なり、かつデバウンス時間を過ぎていれば状態確定
+    // デバウンス後の状態変化を確定
     if (raw != btn_pressed_state && (now - btn_last_change_ms) >= MODE_BTN_DEBOUNCE_MS) {
         btn_last_change_ms = now;
         btn_pressed_state = raw;
-        if (raw) {  // 立ち下がり確定 = 押した瞬間のみモードを進める
-            op_mode_t prev = current_mode;
-            current_mode = (op_mode_t)((current_mode + 1) % MODE_COUNT);
-            update_mode_leds();
-            printf("# mode -> %s\n", mode_name(current_mode));
+        if (raw) {
+            // 押下開始: まだ何もしない（短/長を離すまで/しきい値で判定）
+            btn_press_start_ms = now;
+            btn_long_fired = false;
+        } else {
+            // 離した: 長押しが発火していなければ短押し = モード循環
+            if (!btn_long_fired) {
+                mode_advance();
+            }
+        }
+    }
 
-            // RECORDから抜けたら記録停止＋フラッシュ書出し
-            if (prev == MODE_RECORD && current_mode != MODE_RECORD) {
-                size_t n = recorder_stop_and_flush();
-                printf("# recording stopped, flushed %u samples to flash\n", (unsigned)n);
-            }
-            // RECORDに入ったら記録開始（バッファクリア）
-            if (current_mode == MODE_RECORD && prev != MODE_RECORD) {
-                recorder_start();
-                printf("# recording started\n");
-            }
-            // PLAYBACKに入ったら再生を待機状態にし、保存済みサンプル数を表示
-            if (current_mode == MODE_PLAYBACK) {
-                playback_running = false;
-                pb_sample_idx = 0;
-                pb_frame_ctr = 0;
-                printf("# playback ready: %u samples in flash (send 'p' to play)\n",
-                       (unsigned)recorder_flash_sample_count());
-            }
+    // 保持中に長押ししきい値を超えたら一度だけ長押しアクション
+    if (btn_pressed_state && !btn_long_fired &&
+        (now - btn_press_start_ms) >= MODE_BTN_LONG_MS) {
+        btn_long_fired = true;  // 短押し扱いを抑止
+        if (current_mode == MODE_PLAYBACK) {
+            playback_toggle();
         }
     }
 }
