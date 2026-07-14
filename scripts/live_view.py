@@ -39,7 +39,9 @@ AXIS_LABELS = ["LX", "LY", "RX", "RY", "L2", "R2"]
 
 
 def find_port():
-    for pat in ("/dev/tty.usbmodem*", "/dev/cu.usbmodem*", "/dev/ttyACM*", "/dev/ttyUSB*"):
+    # PCへの出力は GP4/5 → USB-シリアル変換経由。USB-UART変換の一般的な名前を優先。
+    for pat in ("/dev/cu.usbserial-*", "/dev/cu.SLAB_USBtoUART*", "/dev/cu.wchusbserial*",
+                "/dev/cu.usbmodem*", "/dev/ttyUSB*", "/dev/ttyACM*"):
         hits = sorted(glob.glob(pat))
         if hits:
             return hits[0]
