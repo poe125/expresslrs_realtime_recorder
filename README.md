@@ -109,6 +109,11 @@ GP2ボタンで3モードを循環し、GP10-12のLEDで表示する。起動時
 - 記録はRECORDを抜けた時にフラッシュへ一括書出し（飛行中は書かずタイミングを保護）。
 - 切断時はスロットル最小＋Arm解除のフェイルセーフを送出。
 
+## 配線・プロトタイプ
+
+- [`docs/perfboard-layout.html`](docs/perfboard-layout.html) — ユニバーサル基板の実寸グリッド配置図＋結線ネットリスト（ブラウザで開く）
+- [`docs/hardware-validation.md`](docs/hardware-validation.md) — 実機ブリングアップ手順（CRSF反転の切り分け含む）
+
 ## プロジェクト構造
 
 ```

@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ExpressLRS Recorder — ユニバーサル基板レイアウト</title>
+</head>
+<body>
+<style>
+  :root{
+    --bg:#f6f8fa; --surface:#ffffff; --board:#e7edf2; --hole:#aebccb;
+    --ink:#14202b; --muted:#5a6b7b; --line:#d5dde5; --accent:#0e7c86;
+    --net-hv:#d64545; --net-5v:#df7d1f; --net-gnd:#3a4d61;
+    --net-crsf:#2f9e44; --net-dbg:#3b7ddd; --net-ui:#7c53d6;
+    --pico:#1f6f3c; --pico-ink:#eafff0;
+    --danger-bg:#fdecec; --danger-ink:#8f2a2a; --danger-line:#f0c3c3;
+    --font:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0b1015; --surface:#141c24; --board:#0f1a16; --hole:#2f4038;
+      --ink:#e6edf3; --muted:#93a3b3; --line:#233039; --accent:#2dd4bf;
+      --net-hv:#f2706e; --net-5v:#f0a54e; --net-gnd:#9fb0c2;
+      --net-crsf:#59c877; --net-dbg:#6aa6f2; --net-ui:#a488ea;
+      --pico:#1c5c34; --pico-ink:#e9ffef;
+      --danger-bg:#2a1414; --danger-ink:#f2a3a3; --danger-line:#5a2626;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f8fa; --surface:#ffffff; --board:#e7edf2; --hole:#aebccb;
+    --ink:#14202b; --muted:#5a6b7b; --line:#d5dde5; --accent:#0e7c86;
+    --net-hv:#d64545; --net-5v:#df7d1f; --net-gnd:#3a4d61;
+    --net-crsf:#2f9e44; --net-dbg:#3b7ddd; --net-ui:#7c53d6;
+    --pico:#1f6f3c; --pico-ink:#eafff0;
+    --danger-bg:#fdecec; --danger-ink:#8f2a2a; --danger-line:#f0c3c3;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b1015; --surface:#141c24; --board:#0f1a16; --hole:#2f4038;
+    --ink:#e6edf3; --muted:#93a3b3; --line:#233039; --accent:#2dd4bf;
+    --net-hv:#f2706e; --net-5v:#f0a54e; --net-gnd:#9fb0c2;
+    --net-crsf:#59c877; --net-dbg:#6aa6f2; --net-ui:#a488ea;
+    --pico:#1c5c34; --pico-ink:#e9ffef;
+    --danger-bg:#2a1414; --danger-ink:#f2a3a3; --danger-line:#5a2626;
+  }
+
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);
+    line-height:1.55;margin:0;padding:0}
+  .wrap{max-width:1000px;margin:0 auto;padding:40px 22px 72px}
+
+  header{border-bottom:1px solid var(--line);padding-bottom:22px;margin-bottom:26px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+  h1{font-size:clamp(22px,3.4vw,31px);line-height:1.15;margin:0 0 8px;
+    text-wrap:balance;font-weight:680;letter-spacing:-.01em}
+  .lede{color:var(--muted);margin:0;max-width:62ch}
+
+  h2{font-size:18px;margin:40px 0 6px;font-weight:660;letter-spacing:-.01em}
+  h2 .n{font-family:var(--mono);color:var(--accent);font-size:14px;margin-right:8px}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 18px}
+
+  .callout{display:flex;gap:12px;background:var(--danger-bg);
+    border:1px solid var(--danger-line);color:var(--danger-ink);
+    border-radius:10px;padding:14px 16px;margin:20px 0;font-size:14px}
+  .callout b{font-weight:680}
+  .callout .ic{font-size:18px;line-height:1.3}
+  .callout ul{margin:6px 0 0;padding-left:18px}
+  .callout li{margin:3px 0}
+
+  .figure{background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:12px;overflow-x:auto}
+  .figure svg{display:block;min-width:660px;width:100%;height:auto}
+
+  .legend{display:flex;flex-wrap:wrap;gap:14px 20px;margin:16px 2px 0;
+    font-family:var(--mono);font-size:12.5px}
+  .legend span{display:inline-flex;align-items:center;gap:7px;color:var(--muted)}
+  .legend i{width:22px;height:0;border-top:3px solid;border-radius:2px;display:inline-block}
+  .legend .dash{border-top-style:dashed}
+
+  .grid2{display:grid;grid-template-columns:1fr;gap:8px}
+  @media(min-width:720px){.grid2{grid-template-columns:1fr 1fr;gap:26px}}
+
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;
+    background:var(--surface);margin-top:8px}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:440px}
+  th,td{text-align:left;padding:9px 13px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  thead th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--muted);font-weight:600;
+    background:color-mix(in srgb,var(--surface) 88%,var(--ink))}
+  tbody tr:last-child td{border-bottom:none}
+  td.mono,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;
+    margin-right:7px;vertical-align:-1px}
+  .pin{font-family:var(--mono);font-weight:600;color:var(--accent)}
+  .arrow{color:var(--muted)}
+
+  .note{color:var(--muted);font-size:13px;margin-top:10px}
+  footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);
+    color:var(--muted);font-size:12.5px;font-family:var(--mono)}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Perfboard Prototype · 配置プラン v0.1</p>
+    <h1>ユニバーサル基板レイアウト &amp; 結線ネットリスト</h1>
+    <p class="lede">ゲームパッド→Pico→Nano TX V2 のプロトを蛇の目基板で組むための、
+      実寸グリッド配置図と全結線リスト。左=信号/UI、右=電源。1穴 = 2.54&nbsp;mmピッチ。</p>
+  </header>
+
+  <div class="callout">
+    <span class="ic">⚠</span>
+    <div>
+      <b>配線前の必須確認（この3点でPico即死を防ぐ）</b>
+      <ul>
+        <li><b>Buck出力は繋ぐ前にテスターで5.0Vへ調整</b>（可変品は初期12V等）。</li>
+        <li><b>+5V(オレンジ) と LiPo+ 7–13V(赤) を絶対に接触させない</b>。基板上で離して配線。</li>
+        <li>給電は <b>VBUS(pin40)</b> のみ。VSYS(pin39)へは入れない（内部D1でUSBに5Vが回らずゲームパッドに給電不可）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2><span class="n">01</span>基板フロアプラン</h2>
+  <p class="sub">Picoはメス2×20ピンヘッダに載せて着脱可に（書込み時に外部給電を切って作業）。
+    micro-USB口を基板端へ向け、OTG変換でゲームパッドを接続。</p>
+
+  <div class="figure">
+    <svg id="board" aria-label="ユニバーサル基板の部品配置図"></svg>
+  </div>
+  <div class="legend" id="legend"></div>
+  <p class="note">GNDは可読性のため主要ワイヤのみ実線表示。実際は全GND消費点（⏚印）を
+    <b>LiPo−の星ノード</b>へ集約する。特に<b>Nano TX のGNDは太線でLiPo−へ直結</b>（送信の大電流をPico基板に通さない）。</p>
+
+  <h2><span class="n">02</span>結線ネットリスト</h2>
+  <p class="sub">各ネット（電気的に同一の点の集合）と全メンバー。色は上の配線図と対応。</p>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>ネット</th><th>電圧/種別</th><th>メンバー（この点は全部つながる）</th></tr></thead>
+      <tbody id="netrows"></tbody>
+    </table>
+  </div>
+
+  <div class="grid2" style="margin-top:34px">
+    <div>
+      <h2 style="margin-top:0"><span class="n">03</span>Pico ピン使用表</h2>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>pin</th><th>機能</th><th>行き先</th></tr></thead>
+          <tbody id="pinrows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h2 style="margin-top:0"><span class="n">04</span>外部・部品</h2>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>部品</th><th>要点</th></tr></thead>
+          <tbody id="partrows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:22px"><b>CRSFは設定可能に:</b>
+    §反転(現ファームON)・半二重方式が未確定のため、GP0の直列 <span class="mono">680Ω</span> を
+    ジャンパで入切でき、必要なら GP0/GP1 を束ねて単線化できる余地をパッドに残す。</p>
+
+  <footer>ExpressLRS Realtime Recorder · perfboard floorplan · 1 hole = 2.54 mm · 配置は目安（実寸はモジュール実測で調整）</footer>
+</div>
+
+<script>
+(function(){
+  const NS="http://www.w3.org/2000/svg";
+  const svg=document.getElementById("board");
+  const P=26, M=40, COLS=26, ROWS=22;
+  const W=M*2+(COLS-1)*P, H=M*2+(ROWS-1)*P;
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  const cs=getComputedStyle(document.documentElement);
+  const col=n=>cs.getPropertyValue(n).trim();
+  const hx=c=>M+c*P, hy=r=>M+r*P;
+  function el(t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,o={}){const t=el("text",{x,y,fill:o.fill||col("--muted"),
+    "font-size":o.size||11,"font-family":"ui-monospace,Menlo,monospace",
+    "text-anchor":o.anchor||"start","font-weight":o.weight||400,
+    "dominant-baseline":o.base||"middle"});t.textContent=s;svg.appendChild(t);return t;}
+
+  // board
+  svg.appendChild(el("rect",{x:hx(0)-16,y:hy(0)-16,width:(COLS-1)*P+32,height:(ROWS-1)*P+32,
+    rx:12,fill:col("--board"),stroke:col("--line")}));
+  // holes
+  for(let c=0;c<COLS;c++)for(let r=0;r<ROWS;r++)
+    svg.appendChild(el("circle",{cx:hx(c),cy:hy(r),r:2.1,fill:col("--hole")}));
+
+  // ---- component block helper ----
+  function block(c0,r0,c1,r1,label,sub,accent){
+    const x=hx(c0)-9,y=hy(r0)-9,w=(c1-c0)*P+18,h=(r1-r0)*P+18;
+    svg.appendChild(el("rect",{x,y,width:w,height:h,rx:7,fill:"none",
+      stroke:accent||col("--accent"),"stroke-width":1.6,"stroke-dasharray":"5 3"}));
+    if(label)txt(x+8,y+13,label,{fill:accent||col("--accent"),weight:700,size:12});
+    if(sub)txt(x+8,y+27,sub,{size:10});
+  }
+
+  // ---- wire helper ----
+  function wire(color,pts,o={}){
+    const d=pts.map(p=>`${hx(p[0])},${hy(p[1])}`).join(" ");
+    svg.appendChild(el("polyline",{points:d,fill:"none",stroke:color,
+      "stroke-width":o.w||3,"stroke-linejoin":"round","stroke-linecap":"round",
+      "stroke-dasharray":o.dash||"none",opacity:o.op||1}));
+  }
+  function dot(c,r,color){svg.appendChild(el("circle",{cx:hx(c),cy:hy(r),r:3.4,fill:color}));}
+  function gnd(c,r){ // ground symbol ⏚
+    const x=hx(c),y=hy(r);
+    svg.appendChild(el("line",{x1:x,y1:y-1,x2:x,y2:y+5,stroke:col("--net-gnd"),"stroke-width":1.6}));
+    [6,4,2].forEach((half,i)=>svg.appendChild(el("line",{x1:x-half,y1:y+5+i*2.6,
+      x2:x+half,y2:y+5+i*2.6,stroke:col("--net-gnd"),"stroke-width":1.6})));
+  }
+
+  // ================= WIRES (draw under components) =================
+  // VLIPO 7-13V (red): LiPo+ -> fuse -> node -> Buck IN+ , node -> TX VBAT
+  wire(col("--net-hv"),[[18,15],[18,12.4]]);        // LiPo+ up to fuse
+  wire(col("--net-hv"),[[18,11.6],[18,9],[16,9],[16,6.6]]); // to Buck IN+ (bottom pad)
+  wire(col("--net-hv"),[[18,9],[22,9],[22,2.4]]);   // branch to TX VBAT
+  // +5V (amber): Buck OUT+ -> VBUS pin40
+  wire(col("--net-5v"),[[16,3.4],[14.5,3.4],[14.5,1],[13,1]]);
+  // CRSF (green): GP0 -> [680] -> TX SIG  (route above Pico)
+  wire(col("--net-crsf"),[[6,1],[6,-0.1],[20,-0.1],[20,1.6]]);
+  // DBG (blue): GP4/GP5 -> debug header
+  wire(col("--net-dbg"),[[6,6],[3,6]]);
+  wire(col("--net-dbg"),[[6,7],[3.5,7],[3.5,7]]);
+  // GND (slate): star -> Buck IN-, TX GND, Pico pin38 ; + bottom bus to left
+  wire(col("--net-gnd"),[[18,16],[16,16],[16,5.6]]);           // star->Buck IN-
+  wire(col("--net-gnd"),[[18,16],[23,16],[23,2.4]]);           // star->TX GND (thick)
+  wire(col("--net-gnd"),[[18,16],[14.5,16],[14.5,3],[13,3]]);  // star->pico pin38
+  wire(col("--net-gnd"),[[18,16],[1.5,16]],{w:3});             // bottom-left GND bus
+  wire(col("--net-gnd"),[[1.5,16],[1.5,3.2]]);                 // left GND rail up
+  wire(col("--net-gnd"),[[1.5,3],[6,3]]);                      // rail -> pico pin3
+
+  // markers on wires
+  // fuse
+  svg.appendChild(el("rect",{x:hx(18)-7,y:hy(12.4)-3,width:14,height:hy(11.6)-hy(12.4)+6,
+    rx:2,fill:col("--surface"),stroke:col("--net-hv"),"stroke-width":1.5}));
+  txt(hx(18)+11,hy(12),"FUSE",{fill:col("--net-hv"),size:9});
+  // 680 ohm on CRSF
+  svg.appendChild(el("rect",{x:hx(13)-13,y:hy(-0.1)-6,width:26,height:12,rx:2,
+    fill:col("--surface"),stroke:col("--net-crsf"),"stroke-width":1.5}));
+  txt(hx(13),hy(-0.1),"680Ω?",{fill:col("--net-crsf"),anchor:"middle",size:9});
+
+  // junction dots
+  dot(18,9,col("--net-hv")); dot(18,16,col("--net-gnd"));
+  // gnd symbols at consumers
+  [[16,5.6],[23,2.4],[13,3],[6,3]].forEach(p=>{});
+
+  // ================= COMPONENTS =================
+  // Pico body
+  const pc0=6,pc1=13,pr0=1,pr1=20;
+  svg.appendChild(el("rect",{x:hx(pc0)-10,y:hy(pr0)-10,width:(pc1-pc0)*P+20,height:(pr1-pr0)*P+20,
+    rx:8,fill:col("--pico"),stroke:col("--line")}));
+  txt(hx(9.5),hy(10.5),"Raspberry",{fill:col("--pico-ink"),anchor:"middle",size:12,weight:700});
+  txt(hx(9.5),hy(11.4),"Pi PICO",{fill:col("--pico-ink"),anchor:"middle",size:12,weight:700});
+  txt(hx(9.5),hy(12.4),"(on headers)",{fill:col("--pico-ink"),anchor:"middle",size:9});
+  // usb tab
+  svg.appendChild(el("rect",{x:hx(8.2),y:hy(0.2)-20,width:hx(10.8)-hx(8.2),height:20,rx:3,
+    fill:col("--surface"),stroke:col("--line")}));
+  txt(hx(9.5),hy(0.2)-10,"USB",{anchor:"middle",size:9});
+
+  // all 40 pin pads
+  const netColor={CRSF:col("--net-crsf"),GND:col("--net-gnd"),BTN:col("--net-ui"),
+    DBG:col("--net-dbg"),LED:col("--net-ui"),"5V":col("--net-5v"),TIE:col("--muted"),NC:col("--muted")};
+  const used={ // pinNumber: [gpioLabel, net, sideLabelText]
+    1:["GP0","CRSF"],2:["GP1","TIE"],3:["GND","GND"],4:["GP2","BTN"],
+    6:["GP4","DBG"],7:["GP5","DBG"],8:["GND","GND"],
+    14:["GP10","LED"],15:["GP11","LED"],16:["GP12","LED"],
+    38:["GND","GND"],39:["VSYS","NC"],40:["VBUS","5V"]};
+  // left column pins 1..20 at col6, rows1..20 ; right column pins 40..21 at col13
+  for(let i=0;i<20;i++){
+    const r=1+i;
+    const pinL=i+1, pinR=40-i;
+    [[pinL,pc0,-1],[pinR,pc1,1]].forEach(([pin,cc,dir])=>{
+      const u=used[pin];
+      const color=u?netColor[u[1]]:col("--hole");
+      svg.appendChild(el("circle",{cx:hx(cc),cy:hy(r),r:u?4.2:3,
+        fill:u?color:col("--board"),stroke:u?col("--surface"):col("--hole"),"stroke-width":u?1.5:1}));
+      if(u){
+        const lx=hx(cc)+dir*9;
+        txt(lx,hy(r),`${pin} ${u[0]}`,{anchor:dir<0?"end":"start",size:9.5,
+          fill:col("--ink"),weight:600});
+      }
+    });
+  }
+
+  // Nano TX (off-board, top-right)
+  block(20,0.4,24,2,"Nano TX V2","(外部・JR)",col("--net-hv"));
+  dot(20,1.6,col("--net-crsf")); txt(hx(20)-6,hy(1.6),"SIG",{anchor:"end",size:9,fill:col("--net-crsf")});
+  dot(22,2.4,col("--net-hv")); dot(23,2.4,col("--net-gnd"));
+  txt(hx(22),hy(2.4)+11,"VBAT",{anchor:"middle",size:8.5,fill:col("--net-hv")});
+  txt(hx(23),hy(2.4)+11,"GND",{anchor:"middle",size:8.5,fill:col("--net-gnd")});
+
+  // Buck module (right)
+  block(15.4,3,19.4,6.6,"Buck 5.0V","MP1584等",col("--net-5v"));
+  dot(16,3.4,col("--net-5v")); txt(hx(16)+8,hy(3.4),"OUT+",{size:9,fill:col("--net-5v")});
+  dot(16,5.6,col("--net-gnd")); txt(hx(16)+8,hy(5.6),"IN−/OUT−",{size:9,fill:col("--net-gnd")});
+  dot(16,6.6,col("--net-hv")); txt(hx(16)+8,hy(6.6),"IN+",{size:9,fill:col("--net-hv")});
+
+  // Power input / LiPo / star
+  block(16.4,11,23.4,17,"電源入力","LiPo 3S",col("--muted"));
+  dot(18,15,col("--net-hv")); txt(hx(18)+9,hy(15),"LiPo+",{size:9.5,fill:col("--net-hv")});
+  dot(18,16,col("--net-gnd"));
+  txt(hx(18)+9,hy(16),"LiPo−  ★GND星",{size:9.5,fill:col("--net-gnd"),weight:700});
+
+  // Button
+  block(1.4,3.5,3.6,4.6,"BTN","GP2 tact",col("--net-ui"));
+  wire(col("--net-ui"),[[6,4],[3.6,4]]);
+  gnd(2.2,4.9);
+
+  // Debug header
+  block(1,5.7,3.2,8.1,"DEBUG","USB-serial",col("--net-dbg"));
+  txt(hx(2.1),hy(7.6),"→PC",{anchor:"middle",size:9,fill:col("--muted")});
+  gnd(3,8);
+  wire(col("--net-gnd"),[[6,8],[4.2,8]]);
+
+  // LEDs + resistors
+  block(0.6,13.4,4.6,16.6,"MODE LED","330Ω×3",col("--net-ui"));
+  const ledc={14:["赤",col("--net-hv")],15:["緑",col("--net-crsf")],16:["青",col("--net-dbg")]};
+  [14,15,16].forEach((pin,i)=>{
+    const r=pin; // rows 14,15,16
+    wire(col("--net-ui"),[[6,r],[4.4,r]]);       // gpio -> R
+    svg.appendChild(el("rect",{x:hx(3.5)-8,y:hy(r)-4,width:16,height:8,rx:2,
+      fill:col("--surface"),stroke:col("--net-ui"),"stroke-width":1.3}));
+    txt(hx(2.1),hy(r),ledc[pin][0],{anchor:"middle",size:10,fill:ledc[pin][1],weight:700});
+  });
+  gnd(0.9,16.6);
+
+  // gnd consumer symbols on right side
+  gnd(16,5.6-0);
+})();
+
+// ---------- legend ----------
+(function(){
+  const L=[["--net-hv","VLIPO 7–13V（LiPo+）"],["--net-5v","+5V（Buck出力）"],
+    ["--net-gnd","GND（星@LiPo−）"],["--net-crsf","CRSF信号"],
+    ["--net-dbg","デバッグUART"],["--net-ui","ボタン/LED"]];
+  const box=document.getElementById("legend");
+  const cs=getComputedStyle(document.documentElement);
+  L.forEach(([v,t])=>{const s=document.createElement("span");
+    s.innerHTML=`<i style="border-color:${cs.getPropertyValue(v).trim()}"></i>${t}`;
+    box.appendChild(s);});
+})();
+
+// ---------- netlist ----------
+(function(){
+  const c=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const nets=[
+    ["--net-hv","VLIPO","7–13V 直",'LiPo+ <span class="arrow">→</span> ヒューズ <span class="arrow">→</span> Buck IN+ ／ Nano TX VBAT+'],
+    ["--net-5v","+5V","Buck出力",'Buck OUT+ <span class="arrow">→</span> Pico VBUS(pin40) <span class="arrow">→</span>(内部)ゲームパッド給電'],
+    ["--net-gnd","GND","0V基準/リターン",'LiPo−(起点★) <span class="arrow">→</span> Buck IN−/OUT− ／ <b>Nano TX GND(太線)</b> ／ Pico GND(pin3, pin38) ／ LED各カソード ／ タクトSW ／ USB-serial GND'],
+    ["--net-crsf","CRSF","信号(半二重)",'Pico GP0(pin1) <span class="arrow">→</span>[680Ω?]<span class="arrow">→</span> Nano TX 信号pad'],
+    ["--net-dbg","DBG_TX","信号",'Pico GP4(pin6) <span class="arrow">→</span> USB-serial RXD'],
+    ["--net-dbg","DBG_RX","信号",'Pico GP5(pin7) <span class="arrow">→</span> USB-serial TXD'],
+    ["--net-ui","BTN","信号",'Pico GP2(pin4) <span class="arrow">→</span> タクトSW <span class="arrow">→</span> GND'],
+    ["--net-ui","LED_R","信号",'Pico GP10(pin14) <span class="arrow">→</span> 330Ω <span class="arrow">→</span> LED赤 <span class="arrow">→</span> GND'],
+    ["--net-ui","LED_G","信号",'Pico GP11(pin15) <span class="arrow">→</span> 330Ω <span class="arrow">→</span> LED緑 <span class="arrow">→</span> GND'],
+    ["--net-ui","LED_B","信号",'Pico GP12(pin16) <span class="arrow">→</span> 330Ω <span class="arrow">→</span> LED青 <span class="arrow">→</span> GND'],
+  ];
+  const tb=document.getElementById("netrows");
+  nets.forEach(([v,name,type,mem])=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td class="mono"><span class="swatch" style="background:${c(v)}"></span>${name}</td>`+
+      `<td>${type}</td><td>${mem}</td>`;
+    tb.appendChild(tr);
+  });
+
+  const pins=[
+    ["1","GP0 · CRSF TX",'Nano TX 信号（680Ω任意）'],
+    ["2","GP1 · 半二重RX",'（単線化時 GP0 と結束）'],
+    ["3","GND",'GND星（信号0V基準）'],
+    ["4","GP2 · ボタン",'タクトSW → GND'],
+    ["6","GP4 · debug TX",'USB-serial RXD'],
+    ["7","GP5 · debug RX",'USB-serial TXD'],
+    ["14","GP10 · LED赤",'330Ω → 記録LED'],
+    ["15","GP11 · LED緑",'330Ω → 再生LED'],
+    ["16","GP12 · LED青",'330Ω → 単純LED'],
+    ["38","GND",'GND星'],
+    ["40","VBUS",'Buck OUT+ (5.0V)'],
+  ];
+  const pb=document.getElementById("pinrows");
+  pins.forEach(([p,f,d])=>{const tr=document.createElement("tr");
+    tr.innerHTML=`<td class="pin">${p}</td><td class="mono" style="font-size:12px">${f}</td><td>${d}</td>`;
+    pb.appendChild(tr);});
+
+  const parts=[
+    ["ゲームパッド",'OTG変換(micro-B→A) → Pico micro-USB。給電はVBUS経由'],
+    ["Nano TX V2",'外部JRモジュール。VBAT=LiPo直, GND=星直, 信号=GP0'],
+    ["USB-serial変換",'GP4/5/GND の3線。デバッグ/値確認・ログ'],
+    ["Buck DC-DC",'5V/1A以上(2-3A推奨)。繋ぐ前に5.0V実測'],
+    ["LiPo 3S",'2Sは放電末期に7V下限に触れる恐れ。主線にヒューズ'],
+  ];
+  const rb=document.getElementById("partrows");
+  parts.forEach(([n,d])=>{const tr=document.createElement("tr");
+    tr.innerHTML=`<td style="white-space:nowrap;font-weight:600">${n}</td><td>${d}</td>`;
+    rb.appendChild(tr);});
+})();
+</script>
+
+</body>
+</html>
