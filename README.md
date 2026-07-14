@@ -7,11 +7,13 @@ Raspberry Pi PicoでゲームパッドのUSB HID入力を取得し、CRSFプロ�
 
 ```
 USBゲームパッド
-    ↓ USB Host (HID)
+    ↓ USB Host (HID, micro-USB)
 Raspberry Pi Pico
-    ├→ UART TX (CRSF 921.6kbps 反転) → BetaFPV Nano TX Module V2 → ExpressLRS → BetaFPV Pavo Pico
-    └→ UART (115200bps) → PC (フライトログ記録)
+    ├→ GP0 UART0 TX (CRSF 921.6kbps 反転 半二重) → BetaFPV Nano TX Module V2 → ExpressLRS → BetaFPV Pavo Pico
+    └→ GP4/5 UART1 (921600bps) → USB-シリアル変換 → PC (デバッグ/値確認・ログ記録)
 ```
+
+操作を Pico 内蔵フラッシュに記録し、再生できる（GP2ボタンでモード切替）。詳細は「動作モード」参照。
 
 ## ハードウェア
 
@@ -26,12 +28,14 @@ Raspberry Pi Pico
 
 | Pico Pin | 接続先 | 説明 |
 |----------|--------|------|
-| USB | ゲームパッド | USB Host |
-| GP0 (UART0 TX) | Nano TX | CRSF出力 (921.6kbps 反転) |
-| GP1 (UART0 RX) | - | 未使用 |
-| GP4 (UART1 TX) | PC | デバッグ出力 (115200bps) |
-| GP5 (UART1 RX) | PC | デバッグ入力 |
-| LED | - | 状態表示（接続:点灯/未接続:点滅） |
+| USB (micro-USB) | ゲームパッド | USB Host |
+| GP0 (UART0 TX) | Nano TX | CRSF出力 (921.6kbps 反転 半二重) |
+| GP1 (UART0 RX) | Nano TX | 半二重テレメトリ受信 |
+| GP4 (UART1 TX) | USB-シリアル変換 → PC | デバッグ出力 (921600bps) |
+| GP5 (UART1 RX) | USB-シリアル変換 → PC | デバッグ入力（コマンド） |
+| GP2 | タクトSW → GND | モード切替ボタン（内部プルアップ） |
+| GP10 / GP11 / GP12 | LED(330Ω) → GND | モードLED 赤=記録 / 緑=再生 / 青=単純 |
+| 内蔵LED | - | 状態表示（接続:点灯 / 未接続:点滅 / 再生:速点滅） |
 
 ## ビルド
 
@@ -84,10 +88,26 @@ cp build/expresslrs_realtime_recorder.uf2 /Volumes/RPI-RP2/
 または:
 
 ```bash
-screen /dev/tty.usbmodem* 115200
+screen /dev/cu.usbserial-* 921600
 ```
 
 終了: `Ctrl+A`, `K`
+
+コマンド: `d`=スナップショット / `s`=ストリーム / `p`=再生start/stop(PLAYBACK) / `?`=ヘルプ
+
+## 動作モード（単純 / 記録 / 再生）
+
+GP2ボタンで3モードを循環し、GP10-12のLEDで表示する。起動時は安全な**単純(SIMPLE)**。
+
+| モード | LED | 動作 |
+|--------|-----|------|
+| SIMPLE (単純) | GP12 青 | ゲームパッド → CRSF パススルー |
+| RECORD (記録) | GP10 赤 | パススルー＋操作を記録（50Hz, Pico内蔵フラッシュへ） |
+| PLAYBACK (再生) | GP11 緑 | フラッシュのログを CRSF として再送出 |
+
+- **短押し**: モード循環 / **長押し(0.6秒)**: PLAYBACK中に再生 start/stop
+- 記録はRECORDを抜けた時にフラッシュへ一括書出し（飛行中は書かずタイミングを保護）。
+- 切断時はスロットル最小＋Arm解除のフェイルセーフを送出。
 
 ## プロジェクト構造
 
@@ -99,14 +119,17 @@ expresslrs_realtime_recorder/
 ├── include/
 │   ├── crsf.h                   # CRSFプロトコル定義
 │   ├── usb_gamepad.h            # ゲームパッドAPI
+│   ├── recorder.h              # 記録/再生API
 │   └── tusb_config.h            # TinyUSB設定
 ├── src/
-│   ├── main.c                   # メインアプリケーション
+│   ├── main.c                   # メインアプリ（モード/ボタン/LED含む）
 │   ├── crsf.c                   # CRSF実装
-│   └── usb_gamepad.c            # USB Host実装
+│   ├── usb_gamepad.c            # USB Host実装
+│   └── recorder.c              # 記録/再生（RAM蓄積→フラッシュ）
 ├── tests/
 │   ├── test_crsf.cpp            # CRSFテスト
-│   └── test_usb_gamepad.cpp     # ゲームパッドテスト
+│   ├── test_usb_gamepad.cpp     # ゲームパッドテスト
+│   └── test_recorder.cpp        # 記録ロジック（間引き/ラッチ）テスト
 ├── scripts/
 │   ├── flash.sh                 # 書き込みスクリプト
 │   └── monitor.sh               # モニタースクリプト
