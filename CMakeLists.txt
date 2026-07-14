@@ -35,6 +35,13 @@ if(BUILD_TESTS)
     )
     target_include_directories(usb_gamepad_lib PUBLIC include)
 
+    # Recorderライブラリ（テスト用、フラッシュ部はPico限定で除外される）
+    add_library(recorder_lib
+        src/recorder.c
+    )
+    target_include_directories(recorder_lib PUBLIC include)
+    target_link_libraries(recorder_lib crsf_lib)
+
     # CRSFテスト
     add_executable(test_crsf
         tests/test_crsf.cpp
@@ -55,9 +62,22 @@ if(BUILD_TESTS)
     )
     target_include_directories(test_usb_gamepad PRIVATE include)
 
-    include(GoogleTest)
-    gtest_discover_tests(test_crsf)
-    gtest_discover_tests(test_usb_gamepad)
+    # Recorderテスト（間引き・ボタンラッチのロジック検証）
+    add_executable(test_recorder
+        tests/test_recorder.cpp
+    )
+    target_link_libraries(test_recorder
+        recorder_lib
+        GTest::gtest_main
+    )
+    target_include_directories(test_recorder PRIVATE include)
+
+    # gtest_discover_tests は各実行ファイルをビルド時に起動して列挙するが、
+    # サンドボックス環境ではその起動がタイムアウトする。実行はテスト時のみに
+    # したいので add_test で登録する（各バイナリを1テストとして実行）。
+    add_test(NAME test_crsf        COMMAND test_crsf)
+    add_test(NAME test_usb_gamepad COMMAND test_usb_gamepad)
+    add_test(NAME test_recorder    COMMAND test_recorder)
 
 else()
     # ======================================
@@ -79,6 +99,7 @@ else()
         src/main.c
         src/crsf.c
         src/usb_gamepad.c
+        src/recorder.c
     )
 
     target_include_directories(expresslrs_realtime_recorder PRIVATE include)
@@ -87,6 +108,7 @@ else()
     target_link_libraries(expresslrs_realtime_recorder
         pico_stdlib
         hardware_uart
+        hardware_flash
         tinyusb_host
         tinyusb_board
     )

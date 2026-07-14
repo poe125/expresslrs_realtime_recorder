@@ -45,6 +45,9 @@ void crsf_pack_channels(const uint16_t channels[CRSF_NUM_CHANNELS], uint8_t *out
 // RC Channels Packedパケットを生成
 size_t crsf_build_rc_channels_packet(const uint16_t channels[CRSF_NUM_CHANNELS], uint8_t *buffer);
 
+// 既にパック済みの22バイトpayloadからRC Channelsフレームを生成（再生用）
+size_t crsf_build_frame_from_payload(const uint8_t payload[CRSF_RC_CHANNELS_PACKED_PAYLOAD_SIZE], uint8_t *buffer);
+
 #ifdef __cplusplus
 }
 #endif

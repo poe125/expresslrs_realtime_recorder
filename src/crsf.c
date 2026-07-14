@@ -120,3 +120,18 @@ size_t crsf_build_rc_channels_packet(const uint16_t channels[CRSF_NUM_CHANNELS],
 
     return 26;  // 全パケット長
 }
+
+size_t crsf_build_frame_from_payload(const uint8_t payload[CRSF_RC_CHANNELS_PACKED_PAYLOAD_SIZE], uint8_t *buffer) {
+    // 記録済みのパック済みpayloadをそのままフレーム化する（再生用）
+    buffer[0] = CRSF_SYNC_BYTE;
+    buffer[1] = CRSF_RC_CHANNELS_PACKED_PAYLOAD_SIZE + 2;
+    buffer[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED;
+
+    for (int i = 0; i < CRSF_RC_CHANNELS_PACKED_PAYLOAD_SIZE; i++) {
+        buffer[3 + i] = payload[i];
+    }
+
+    buffer[25] = crsf_crc8(&buffer[2], CRSF_RC_CHANNELS_PACKED_PAYLOAD_SIZE + 1);
+
+    return 26;
+}

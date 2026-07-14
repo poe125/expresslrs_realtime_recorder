@@ -2,6 +2,7 @@
 #include <string.h>
 #include "crsf.h"
 #include "usb_gamepad.h"
+#include "recorder.h"
 
 #ifdef PICO_BOARD
 #include "pico/stdlib.h"
@@ -36,8 +37,41 @@
 // 連続ストリーム(C)の間引き: 500Hz / 20 = 25Hz で出力
 #define DEBUG_STREAM_DECIMATION 20
 
-// LED（状態表示用）
+// LED（内蔵: 接続/再生ステータス表示用）
 #define LED_PIN         PICO_DEFAULT_LED_PIN
+
+// ========================================
+// モード切替 (ボタン + 外付けLED)
+// ========================================
+// 参照図(63bit氏 R63b)の空きGPIO配置に合わせる。
+// ボタン: GP2 にタクトSW（内部プルアップ, 押下=Low）。押すたびにモード循環。
+#define MODE_BTN_PIN     2
+// モード表示LED（各 330Ω 直列で GND へ）
+#define LED_RECORD_PIN   10  // 赤: 記録
+#define LED_PLAYBACK_PIN 11  // 緑: 再生
+#define LED_SIMPLE_PIN   12  // 青: 単純
+// ボタンのデバウンス時間
+#define MODE_BTN_DEBOUNCE_MS 30
+
+// 動作モード（押下で SIMPLE→RECORD→PLAYBACK→SIMPLE… と循環）
+typedef enum {
+    MODE_SIMPLE = 0,   // 単純: gamepad → CRSF（現行のパススルー）
+    MODE_RECORD,       // 記録: gamepad → CRSF ＋ ログ保存（Phase2で実装）
+    MODE_PLAYBACK,     // 再生: フラッシュ → CRSF（Phase3で実装）
+    MODE_COUNT
+} op_mode_t;
+
+// 起動時は最も安全な単純パススルー。誤って再生で機体を駆動しないため。
+static op_mode_t current_mode = MODE_SIMPLE;
+
+// ボタン状態（デバウンス用）
+static bool     btn_pressed_state = false;   // 確定済みの押下状態
+static uint32_t btn_last_change_ms = 0;
+
+// 再生状態（PLAYBACKモードで 'p' コマンドにより開始/停止）
+static bool     playback_running = false;
+static uint32_t pb_sample_idx = 0;   // 次に送出するフラッシュサンプル番号
+static uint16_t pb_frame_ctr = 0;    // 50Hz送出のための500Hzフレームカウンタ
 
 // ========================================
 // CRSF送信設定
@@ -256,8 +290,20 @@ static void dbg_poll_commands(void) {
                 dbg_stream_enabled = !dbg_stream_enabled;
                 printf("# stream %s\n", dbg_stream_enabled ? "ON" : "OFF");
                 break;
+            case 'p': case 'P':
+                // PLAYBACKモードでのみ再生をstart/stop
+                if (current_mode == MODE_PLAYBACK) {
+                    playback_running = !playback_running;
+                    if (playback_running) { pb_sample_idx = 0; pb_frame_ctr = 0; }
+                    printf("# playback %s (%u samples)\n",
+                           playback_running ? "START" : "STOP",
+                           (unsigned)recorder_flash_sample_count());
+                } else {
+                    printf("# 'p' is only valid in PLAYBACK mode\n");
+                }
+                break;
             case '?':
-                printf("# commands: d=snapshot  s=toggle stream  ?=help\n");
+                printf("# commands: d=snapshot  s=toggle stream  p=play/stop(PLAYBACK)  ?=help\n");
                 break;
             default:
                 break;
@@ -298,6 +344,78 @@ static void init_led(void) {
     gpio_put(LED_PIN, 0);
 }
 
+// ========================================
+// モード切替 (ボタン + LED)
+// ========================================
+
+static const char* mode_name(op_mode_t m) {
+    switch (m) {
+        case MODE_SIMPLE:   return "SIMPLE";
+        case MODE_RECORD:   return "RECORD";
+        case MODE_PLAYBACK: return "PLAYBACK";
+        default:            return "?";
+    }
+}
+
+// 現在のモードに応じて3つの外付けLEDを1つだけ点灯させる。
+static void update_mode_leds(void) {
+    gpio_put(LED_RECORD_PIN,   current_mode == MODE_RECORD);
+    gpio_put(LED_PLAYBACK_PIN, current_mode == MODE_PLAYBACK);
+    gpio_put(LED_SIMPLE_PIN,   current_mode == MODE_SIMPLE);
+}
+
+static void init_mode_io(void) {
+    // ボタン: 入力 + 内部プルアップ（押下でLowに落ちる）
+    gpio_init(MODE_BTN_PIN);
+    gpio_set_dir(MODE_BTN_PIN, GPIO_IN);
+    gpio_pull_up(MODE_BTN_PIN);
+
+    // モードLED: 出力
+    gpio_init(LED_RECORD_PIN);   gpio_set_dir(LED_RECORD_PIN,   GPIO_OUT);
+    gpio_init(LED_PLAYBACK_PIN); gpio_set_dir(LED_PLAYBACK_PIN, GPIO_OUT);
+    gpio_init(LED_SIMPLE_PIN);   gpio_set_dir(LED_SIMPLE_PIN,   GPIO_OUT);
+
+    update_mode_leds();
+}
+
+// ボタンをポーリングし、デバウンス後の立ち下がり（押した瞬間）で
+// モードを1つ進める。500Hzループを妨げないよう非ブロッキング。
+static void poll_mode_button(void) {
+    bool raw = (gpio_get(MODE_BTN_PIN) == 0);  // 押下=true
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+
+    // 前回確定状態と異なり、かつデバウンス時間を過ぎていれば状態確定
+    if (raw != btn_pressed_state && (now - btn_last_change_ms) >= MODE_BTN_DEBOUNCE_MS) {
+        btn_last_change_ms = now;
+        btn_pressed_state = raw;
+        if (raw) {  // 立ち下がり確定 = 押した瞬間のみモードを進める
+            op_mode_t prev = current_mode;
+            current_mode = (op_mode_t)((current_mode + 1) % MODE_COUNT);
+            update_mode_leds();
+            printf("# mode -> %s\n", mode_name(current_mode));
+
+            // RECORDから抜けたら記録停止＋フラッシュ書出し
+            if (prev == MODE_RECORD && current_mode != MODE_RECORD) {
+                size_t n = recorder_stop_and_flush();
+                printf("# recording stopped, flushed %u samples to flash\n", (unsigned)n);
+            }
+            // RECORDに入ったら記録開始（バッファクリア）
+            if (current_mode == MODE_RECORD && prev != MODE_RECORD) {
+                recorder_start();
+                printf("# recording started\n");
+            }
+            // PLAYBACKに入ったら再生を待機状態にし、保存済みサンプル数を表示
+            if (current_mode == MODE_PLAYBACK) {
+                playback_running = false;
+                pb_sample_idx = 0;
+                pb_frame_ctr = 0;
+                printf("# playback ready: %u samples in flash (send 'p' to play)\n",
+                       (unsigned)recorder_flash_sample_count());
+            }
+        }
+    }
+}
+
 static void init_channels(void) {
     // 全チャンネルを安全な初期値に設定
     // スロットルは最小、他は中央
@@ -324,9 +442,13 @@ int main() {
 
     // 初期化
     init_led();
+    init_mode_io();
     init_channels();
     init_crsf_uart();
+    recorder_init();
     usb_gamepad_init();
+
+    printf("Mode: %s (press GP%d button to cycle)\n", mode_name(current_mode), MODE_BTN_PIN);
 
     printf("USB Host initialized, waiting for gamepad...\n");
     printf("\n");
@@ -341,6 +463,9 @@ int main() {
         // デバッグUARTからのコマンド処理（d=snapshot, s=stream, ?=help）
         dbg_poll_commands();
 
+        // モード切替ボタン（GP2）のポーリング
+        poll_mode_button();
+
         // 現在時刻を取得
         uint32_t now = to_ms_since_boot(get_absolute_time());
 
@@ -348,25 +473,72 @@ int main() {
         if (now - last_crsf_send_time >= CRSF_SEND_INTERVAL_MS) {
             last_crsf_send_time = now;
 
-            // ゲームパッド状態を取得してチャンネルにマッピング
+            // ゲームパッド状態を取得
             const gamepad_state_t *gamepad = usb_gamepad_get_state();
 
-            if (gamepad->connected) {
-                // 接続中: ゲームパッド入力をマッピング
-                map_gamepad_to_channels(gamepad);
-                gpio_put(LED_PIN, 1);  // LED ON
-            } else {
-                // 未接続: 安全な値を維持（スロットル最小）
-                // チャンネル値は変更しない（最後の値または初期値を維持）
-                gpio_put(LED_PIN, (now / 500) % 2);  // LED点滅
+            // 再生中に送出するフラッシュサンプル（無ければNULL）
+            const uint8_t *pb_payload = NULL;
+
+            switch (current_mode) {
+                case MODE_SIMPLE:
+                case MODE_RECORD:
+                    // 単純/記録: ゲームパッド入力を channels にマッピング
+                    if (gamepad->connected) {
+                        map_gamepad_to_channels(gamepad);
+                        gpio_put(LED_PIN, 1);  // 接続中: 内蔵LED点灯
+                    } else {
+                        // 未接続: 最後の値を維持（TODO: フェイルセーフでスロットル最小へ）
+                        gpio_put(LED_PIN, (now / 500) % 2);  // 点滅
+                    }
+                    // 記録: 現在の16chを記録器へ（内部で50Hz間引き＋ボタンラッチ）
+                    if (current_mode == MODE_RECORD) {
+                        recorder_on_frame(crsf_channels);
+                        // バッファ満杯時は記録LEDを速い点滅で警告
+                        if (recorder_is_full()) {
+                            gpio_put(LED_RECORD_PIN, (now / 150) % 2);
+                        }
+                    }
+                    break;
+
+                case MODE_PLAYBACK:
+                    if (playback_running) {
+                        pb_payload = recorder_flash_sample(pb_sample_idx);
+                    }
+                    if (pb_payload == NULL) {
+                        // 停止中/データ無し: 安全側（スロットル最小・他中央）を送出
+                        for (int i = 0; i < CRSF_NUM_CHANNELS; i++) {
+                            crsf_channels[i] = CRSF_CHANNEL_MID;
+                        }
+                        crsf_channels[2] = CRSF_CHANNEL_MIN;
+                    }
+                    gpio_put(LED_PIN, (now / 250) % 2);   // 速い点滅=再生モード
+                    break;
+
+                default:
+                    break;
             }
 
             // CRSFパケットを生成して送信
-            size_t len = crsf_build_rc_channels_packet(crsf_channels, crsf_packet);
+            //   再生中は記録済みpayloadをそのままフレーム化、それ以外はchannelsから生成
+            size_t len = pb_payload
+                ? crsf_build_frame_from_payload(pb_payload, crsf_packet)
+                : crsf_build_rc_channels_packet(crsf_channels, crsf_packet);
             crsf_uart_send(crsf_packet, len);
 
             // 半二重バス上のテレメトリ応答を読み捨てて衝突を防ぐ
             crsf_drain_telemetry();
+
+            // 再生の50Hz送出: REC_DECIMATION フレームごとに次サンプルへ
+            if (pb_payload) {
+                if (++pb_frame_ctr >= REC_DECIMATION) {
+                    pb_frame_ctr = 0;
+                    if (++pb_sample_idx >= recorder_flash_sample_count()) {
+                        pb_sample_idx = 0;
+                        playback_running = false;  // 末尾まで再生したら停止
+                        printf("# playback finished\n");
+                    }
+                }
+            }
 
             // (C) 連続ストリーム（有効時のみ、間引き出力）
             dbg_stream_frame();
