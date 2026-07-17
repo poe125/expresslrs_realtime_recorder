@@ -13,9 +13,10 @@ extern "C" {
 #define CFG_TUSB_OS           OPT_OS_NONE
 
 // デバッグレベル（0:なし, 1:エラー, 2:警告, 3:情報）
-#ifndef CFG_TUSB_DEBUG
+// 列挙やエンドポイント転送を追いたい時は 2 にする。CMakeが -DCFG_TUSB_DEBUG=0 を
+// 注入するため、#ifndef ガードでは上書きできず #undef が必要（Stage C調査で判明）。
+#undef CFG_TUSB_DEBUG
 #define CFG_TUSB_DEBUG        0
-#endif
 
 // メモリアライメント
 #define CFG_TUSB_MEM_SECTION

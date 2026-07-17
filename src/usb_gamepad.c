@@ -1,5 +1,6 @@
 #include "usb_gamepad.h"
 #include <stddef.h>
+#include <stdio.h>
 
 #ifdef PICO_BOARD
 // ========================================
@@ -27,6 +28,9 @@ static uint8_t hid_instance = 0;
 // 最後に受信した生HIDレポート（デバッグ/値確認用）
 static uint8_t last_raw_report[64];
 static uint16_t last_raw_len = 0;
+
+// マウント毎に1本目のレポート長を通知するためのフラグ（mount時にリセット）
+static bool first_report_logged = false;
 
 void usb_gamepad_init(void) {
     board_init();
@@ -153,30 +157,48 @@ static void process_ds4_report(uint8_t const *report, uint16_t len) {
     }
 }
 
+// TinyUSB コールバック: USBデバイスが列挙された（HIDドライバより前の段階）
+// HIDのmountが来ないのにこちらが来る場合、列挙は成功しHIDドライバで弾かれている。
+void tuh_mount_cb(uint8_t dev_addr) {
+    uint16_t vid = 0, pid = 0;
+    tuh_vid_pid_get(dev_addr, &vid, &pid);
+    printf("# USB mounted: addr=%u VID=%04X PID=%04X\n", dev_addr, vid, pid);
+}
+
+// TinyUSB コールバック: USBデバイスが切断された
+void tuh_umount_cb(uint8_t dev_addr) {
+    printf("# USB unmounted: addr=%u\n", dev_addr);
+}
+
 // TinyUSB コールバック: HIDデバイスがマウントされた
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
                       uint8_t const *desc_report, uint16_t desc_len) {
     (void)desc_report;
-    (void)desc_len;
 
     uint16_t vid, pid;
     tuh_vid_pid_get(dev_addr, &vid, &pid);
 
     hid_dev_addr = dev_addr;
     hid_instance = instance;
+    first_report_logged = false;
 
     gamepad_state.connected = true;
     gamepad_state.vid = vid;
     gamepad_state.pid = pid;
 
+    printf("# HID mounted: addr=%u inst=%u VID=%04X PID=%04X proto=%u desc_len=%u\n",
+           dev_addr, instance, vid, pid,
+           tuh_hid_interface_protocol(dev_addr, instance), desc_len);
+
     // レポート受信を開始
-    tuh_hid_receive_report(dev_addr, instance);
+    if (!tuh_hid_receive_report(dev_addr, instance)) {
+        printf("# HID receive_report FAILED (addr=%u inst=%u)\n", dev_addr, instance);
+    }
 }
 
 // TinyUSB コールバック: HIDデバイスがアンマウントされた
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
-    (void)dev_addr;
-    (void)instance;
+    printf("# HID unmounted: addr=%u inst=%u\n", dev_addr, instance);
 
     gamepad_state.connected = false;
     hid_dev_addr = 0;
@@ -186,6 +208,12 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
 // TinyUSB コールバック: HIDレポートを受信した
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
                                 uint8_t const *report, uint16_t len) {
+    // 最初の1本だけレポート長を通知（レポートが届いているかの確認用）
+    if (!first_report_logged) {
+        first_report_logged = true;
+        printf("# HID first report: len=%u\n", len);
+    }
+
     // 生レポートを保存（デバッグ/値確認用）
     uint16_t copy_len = (len > sizeof(last_raw_report)) ? sizeof(last_raw_report) : len;
     for (uint16_t i = 0; i < copy_len; i++) {
