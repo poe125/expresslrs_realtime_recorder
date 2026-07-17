@@ -114,7 +114,13 @@
 **Full Speed**（対照2つが偶然どちらもLow Speedで、分離できていない）。ただしPico+TinyUSBでFSのHIDが全滅なら世界的に問題になるはずで、事前確率は低い。**次回はFull SpeedのHIDデバイス（ゲーミングマウス等）で対照実験するのが最優先。**
 
 ### 次回の手順（優先順）
-1. **Full SpeedのHIDデバイスで対照実験**（ゲーミングマウス等。これが本命の切り分け）
+1. **Full SpeedのHIDデバイスで対照実験** ← 本命の切り分け。**対照デバイスは確保済み**:
+   **ELECOM EM01NL トラックボール**の2.4GHzドングル（`2.4G Receiver`, Compx **25A7:FA61**）が
+   **Full Speed** であることをMac側で確認済み。これをPicoに挿すだけで決着する。
+   - **レポートが届く** → Full Speedは無罪 → **F310固有**と確定 → 手順2(XInput)へ
+   - **沈黙する** → **Full Speed全般が黒** → RP2040ホストドライバ側の問題と確定 → 追及の的が変わる
+   - ※ Mac側での事前スクリーニングは `ioreg -p IOUSB -w0 -l | grep -E '"USB Product Name"|"Device Speed"'`
+     （`Device Speed` は 0=Low, 1=Full, 2=High, 3=Super。`system_profiler SPUSBDataType` は空を返すので使えない）
 2. **XInputドライバを入れる**（F310本来のXモードで使う。Pico+TinyUSBでXboxパッドを扱う実装は前例が多い）
 3. **別のゲームパッドを試す**（動けば前進、動かなければFS全般が黒と確定できて情報量が大きい）
 
