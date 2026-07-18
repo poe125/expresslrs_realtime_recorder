@@ -157,6 +157,48 @@ static void process_ds4_report(uint8_t const *report, uint16_t len) {
     }
 }
 
+// Logitech F310 (Dモード / Dual Action) レポート解析
+// レポート記述子(99B)の解読結果に基づく 8バイトレポート:
+//   [0] Left Stick X  [1] Left Stick Y  [2] Right Stick X  [3] Right Stick Y
+//   [4] 下位4bit=D-Pad(ハット 0-7, 8=中立), 上位4bit=ボタン1-4
+//   [5] ボタン5-12    [6..7] ベンダー固有
+// ⚠️ ボタンの物理⇔論理対応は Dual Action の慣例配置に基づく仮マッピング。
+//    実機で各ボタンを押し `d` スナップショットで確認・必要なら修正すること(Stage C)。
+static void process_f310_report(uint8_t const *report, uint16_t len) {
+    if (len < 6) return;
+
+    gamepad_state.axes[GAMEPAD_AXIS_LX] = gamepad_axis_u8_to_s16(report[0]);
+    gamepad_state.axes[GAMEPAD_AXIS_LY] = gamepad_axis_u8_to_s16(report[1]);
+    gamepad_state.axes[GAMEPAD_AXIS_RX] = gamepad_axis_u8_to_s16(report[2]);
+    gamepad_state.axes[GAMEPAD_AXIS_RY] = gamepad_axis_u8_to_s16(report[3]);
+
+    uint16_t buttons = 0;
+
+    // D-Pad（ハット: byte4 下位4bit, 0-7=方向, 8=中立）
+    buttons |= gamepad_dpad_to_buttons(report[4] & 0x0F);
+
+    // フェイスボタン（byte4 上位4bit = ボタン1-4）
+    if (report[4] & 0x10) buttons |= GAMEPAD_BTN_X;      // ボタン1
+    if (report[4] & 0x20) buttons |= GAMEPAD_BTN_A;      // ボタン2
+    if (report[4] & 0x40) buttons |= GAMEPAD_BTN_B;      // ボタン3
+    if (report[4] & 0x80) buttons |= GAMEPAD_BTN_Y;      // ボタン4
+
+    // ショルダー・その他（byte5 = ボタン5-12）
+    if (report[5] & 0x01) buttons |= GAMEPAD_BTN_LB;     // ボタン5 (L1)
+    if (report[5] & 0x02) buttons |= GAMEPAD_BTN_RB;     // ボタン6 (R1)
+    // byte5 bit2/3 = L2/R2(F310はデジタル、CRSF未使用のため省略)
+    if (report[5] & 0x10) buttons |= GAMEPAD_BTN_BACK;   // ボタン9 (Back)
+    if (report[5] & 0x20) buttons |= GAMEPAD_BTN_START;  // ボタン10 (Start)
+    if (report[5] & 0x40) buttons |= GAMEPAD_BTN_L3;     // ボタン11 (L3)
+    if (report[5] & 0x80) buttons |= GAMEPAD_BTN_R3;     // ボタン12 (R3)
+
+    gamepad_state.buttons = buttons;
+
+    if (state_callback) {
+        state_callback(&gamepad_state);
+    }
+}
+
 // TinyUSB コールバック: USBデバイスが列挙された（HIDドライバより前の段階）
 // HIDのmountが来ないのにこちらが来る場合、列挙は成功しHIDドライバで弾かれている。
 void tuh_mount_cb(uint8_t dev_addr) {
@@ -225,6 +267,9 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
     if (gamepad_state.vid == 0x054C &&
         (gamepad_state.pid == 0x09CC || gamepad_state.pid == 0x05C4)) {
         process_ds4_report(report, len);
+    } else if (gamepad_state.vid == 0x046D && gamepad_state.pid == 0xC216) {
+        // Logitech F310 (Dモード / Dual Action)
+        process_f310_report(report, len);
     } else {
         // 汎用ゲームパッドとして処理
         process_gamepad_report(report, len);

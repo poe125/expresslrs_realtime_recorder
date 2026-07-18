@@ -1,0 +1,26 @@
+diff --git a/src/portable/raspberrypi/rp2040/hcd_rp2040.c b/src/portable/raspberrypi/rp2040/hcd_rp2040.c
+index 2c0a3fd..417a02a 100644
+--- a/src/portable/raspberrypi/rp2040/hcd_rp2040.c
++++ b/src/portable/raspberrypi/rp2040/hcd_rp2040.c
+@@ -322,6 +322,21 @@ static void _hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t
+ 
+   // Response to a setup packet on EP0 starts with pid of 1
+   ep->next_pid = (num == 0 ? 1u : 0u);
++
++  // ---- 実験用ワークアラウンド (expresslrs_realtime_recorder Stage C) ----
++  // Logitech F310 (046D:C216) は最初の Interrupt IN 転送を DATA1 PID で始める。
++  // RP2040 はデータシーケンスエラーから回復できないチップバグ(TinyUSB issue #2776)を
++  // 持ち、DATA0 期待だと EP0x81 がフリーズしレポートが1本も来ない。該当EPの初期PIDを
++  // DATA1 にして回避する。動作確認用の一時改変（SDK内ファイル）。後で戻すこと。
++  {
++    uint16_t _wa_vid = 0, _wa_pid = 0;
++    tuh_vid_pid_get(dev_addr, &_wa_vid, &_wa_pid);
++    if (_wa_vid == 0x046D && _wa_pid == 0xC216 && ep_addr == 0x81) {
++      ep->next_pid = 1u;
++    }
++  }
++  // ---- ワークアラウンドここまで ----
++
+   ep->wMaxPacketSize = wMaxPacketSize;
+   ep->transfer_type = transfer_type;
+ 
