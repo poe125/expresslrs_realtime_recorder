@@ -10,7 +10,7 @@ Raspberry Pi PicoでゲームパッドのUSB HID入力を取得し、CRSFプロ�
 USBゲームパッド
     ↓ USB Host (HID, micro-USBポート)
 Raspberry Pi Pico
-    ├→ GP0 UART0 TX (CRSF 921.6kbps 反転 半二重) → BetaFPV Nano TX Module V2 → ExpressLRS → BetaFPV Pavo Pico
+    ├→ GP0 UART0 TX (CRSF 921.6kbps 反転 半二重) → BetaFPV Nano TX Module V2 → ExpressLRS → BetaFPV Pavo Pico II
     └→ GP4/5 UART1 (921600bps) → USB-シリアル変換 → PC (デバッグ/値確認・ログ記録)
 ```
 
@@ -18,7 +18,7 @@ Raspberry Pi Pico
 - **マイコン**: Raspberry Pi Pico
 - **入力**: USBゲームパッド（USB HID）
 - **送信モジュール**: BetaFPV Nano TX Module V2
-- **機体**: BetaFPV Pavo Pico
+- **機体**: BetaFPV Pavo Pico II（F4 2-3S 20A AIO FC, Serial ELRS 2.4G受信機内蔵）
 
 ## 開発環境
 - **SDK**: Pico SDK (C/C++)
