@@ -269,11 +269,6 @@ DATA1 PID で開始する**（F310ファーム側の癖）。RP2040 は初期PID
 
 目的: 記録フロー全体と切断時の安全動作を実機で確認。
 
-事前準備: **GP3(pin5)にArm用トグルスイッチを配線**（SW→GND、内部プルアップ）。
-Stage D後にAボタンArmを廃止し物理スイッチ化したため、未配線だとArmできない。
-ブレッドボード上はスライドSWかジャンパ線（GND短絡=Arm）で代用可。
-
-0. [ ] Armスイッチ動作確認: ON→AUX3最大 / OFF→最小、切断後はOFFに一度戻すまで再Armしない。
 1. [ ] RECORD(赤LED)で数十秒操作 → `# recording started`。
 2. [ ] 短押しで抜ける → `# recording stopped, flushed N samples`（N>0）。
 3. [ ] PLAYBACK(緑LED) → `# playback ready: N samples`。
@@ -290,7 +285,6 @@ Stage D後にAボタンArmを廃止し物理スイッチ化したため、未配
 目的: 検証済み回路を `docs/perfboard-layout.html` に従いハンダ実装し、短縮版で再検証。
 
 1. [ ] perfboard-layout の netlist 通りにハンダ。GP0直列抵抗・半二重結線はStage Dで確定した方式で。
-   ⚠️ **netlist要更新**: GP3のArmトグルスイッチ（Stage D後に追加）が perfboard-layout.html に未反映。ハンダ前に追記すること。
 2. [ ] **給電をLiPo+Buckへ切替**: Buck出力を**テスターで実測5.0V**に調整してからPico接続（Stage A手順を再実施）。TX VBATはLiPo直結。GNDはLiPo−起点のスター結線。
 3. [ ] 導通チェック（テスター）: 電源極性、GNDスター、GP0/GP2/GP4/GP10-12 の結線とショート無し。
 4. [ ] 短縮再検証: Stage B(モードUI) → C(パッド追従1点) → D(疎通・Arm) → E(記録再生1回・フェイルセーフ) を各1パス。
