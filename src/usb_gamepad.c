@@ -162,8 +162,9 @@ static void process_ds4_report(uint8_t const *report, uint16_t len) {
 //   [0] Left Stick X  [1] Left Stick Y  [2] Right Stick X  [3] Right Stick Y
 //   [4] 下位4bit=D-Pad(ハット 0-7, 8=中立), 上位4bit=ボタン1-4
 //   [5] ボタン5-12    [6..7] ベンダー固有
-// ⚠️ ボタンの物理⇔論理対応は Dual Action の慣例配置に基づく仮マッピング。
-//    実機で各ボタンを押し `d` スナップショットで確認・必要なら修正すること(Stage C)。
+// ボタンの物理⇔論理対応は Dual Action の慣例配置（1=X, 2=A, 3=B, 4=Y）。
+// 実機確認済み(2026-08-06): A→CH7/AUX3, B→CH8/AUX4, X→CH9/AUX5, Y→CH10/AUX6,
+// LB→CH11/AUX7, RB→CH12/AUX8 がBetaflight Receiverタブで全て一致。
 static void process_f310_report(uint8_t const *report, uint16_t len) {
     if (len < 6) return;
 

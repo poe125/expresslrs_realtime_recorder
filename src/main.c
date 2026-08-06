@@ -130,6 +130,16 @@ static uint16_t dbg_drain_len = 0;
 // チャンネルマッピング
 // ========================================
 
+// 軸の上下反転。-INT16_MIN は int16 に収まらず -32768 のまま化けるため飽和させる
+static inline int16_t axis_invert(int16_t v) {
+    return (v == INT16_MIN) ? INT16_MAX : (int16_t)-v;
+}
+
+// Arm(CH7)のトグルラッチ。ゲームパッドのAは押しボタン（モーメンタリ）で
+// 押し続けられないため、押下エッジごとにArm/Disarmを切り替える。
+static bool arm_latched = false;
+static uint16_t prev_buttons = 0;
+
 // ゲームパッド入力をCRSFチャンネルにマッピング
 static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
     // 標準的なドローン操縦マッピング (Mode 2)
@@ -139,8 +149,8 @@ static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
     // CH4: Yaw      (左スティック X)
 
     crsf_channels[0] = crsf_normalize_channel(gamepad->axes[GAMEPAD_AXIS_RX]);  // Roll
-    crsf_channels[1] = crsf_normalize_channel(-gamepad->axes[GAMEPAD_AXIS_RY]); // Pitch (反転)
-    crsf_channels[2] = crsf_normalize_channel(-gamepad->axes[GAMEPAD_AXIS_LY]); // Throttle (反転)
+    crsf_channels[1] = crsf_normalize_channel(axis_invert(gamepad->axes[GAMEPAD_AXIS_RY])); // Pitch (反転)
+    crsf_channels[2] = crsf_normalize_channel(axis_invert(gamepad->axes[GAMEPAD_AXIS_LY])); // Throttle (反転)
     crsf_channels[3] = crsf_normalize_channel(gamepad->axes[GAMEPAD_AXIS_LX]);  // Yaw
 
     // CH5-8: トリガーとボタン
@@ -150,8 +160,13 @@ static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
     crsf_channels[5] = crsf_normalize_channel(gamepad->axes[GAMEPAD_AXIS_R2]);
 
     // ボタンをスイッチチャンネルにマッピング
-    // A/Crossボタン → CH7 (Arm)
-    crsf_channels[6] = (gamepad->buttons & GAMEPAD_BTN_A) ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
+    // A/Crossボタン → CH7 (Arm): 押下エッジでトグル
+    if ((gamepad->buttons & GAMEPAD_BTN_A) && !(prev_buttons & GAMEPAD_BTN_A)) {
+        arm_latched = !arm_latched;
+        printf("# %s\n", arm_latched ? "ARM" : "DISARM");
+    }
+    prev_buttons = gamepad->buttons;
+    crsf_channels[6] = arm_latched ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
     // B/Circleボタン → CH8
     crsf_channels[7] = (gamepad->buttons & GAMEPAD_BTN_B) ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
 
@@ -177,6 +192,9 @@ static void set_failsafe_channels(void) {
     }
     crsf_channels[2] = CRSF_CHANNEL_MIN;  // CH3 Throttle 最小
     crsf_channels[6] = CRSF_CHANNEL_MIN;  // CH7 Arm 解除（最重要: モーター停止）
+    // Armトグルもリセット（再接続した瞬間に勝手にArmが復活しないように）
+    arm_latched = false;
+    prev_buttons = 0;
 }
 
 // ========================================

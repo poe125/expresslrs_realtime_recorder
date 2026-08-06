@@ -91,7 +91,8 @@ SIMPLE モードで、ゲームパッドを操作しながら `d` を送る。
 
 1. [ ] 機体(Pavo Pico)の受信機を対象TXにバインド済みにする。
 2. [ ] SIMPLE で、Betaflight等のReceiverタブでスティック/スイッチが追従するか確認。
-3. [ ] Arm(CH7=Aボタン)でモーターがArm、放すとDisarmすることを確認（プロペラ無し）。
+3. [ ] Arm(CH7=Aボタン)は**トグル式**: 1回押すとArm、もう1回でDisarm（プロペラ無し）。
+   - ※Betaflight Configurator接続中は MSP/CLI フラグでArm不可（ビープで拒否通知）。USBを抜いて確認する。
 
 ---
 
