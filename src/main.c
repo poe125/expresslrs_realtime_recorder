@@ -55,6 +55,12 @@
 // 長押し判定のしきい値（これ以上保持で「長押し」= 再生start/stop）
 #define MODE_BTN_LONG_MS     600
 
+// Armスイッチ: GP3 に物理トグルSW（内部プルアップ, ON=GND短絡=Arm）。
+// ゲームパッドの押しボタンによるArmトグルは誤タッチ1回で墜落するため廃止し、
+// スイッチ位置＝Arm状態が目視できる物理トグルに変更。GP2の隣・GND(pin3)至近。
+#define ARM_SW_PIN           3
+#define ARM_SW_DEBOUNCE_MS   30
+
 // 動作モード（押下で SIMPLE→RECORD→PLAYBACK→SIMPLE… と循環）
 typedef enum {
     MODE_SIMPLE = 0,   // 単純: gamepad → CRSF（現行のパススルー）
@@ -71,6 +77,13 @@ static bool     btn_pressed_state = false;   // 確定済みの押下状態
 static uint32_t btn_last_change_ms = 0;
 static uint32_t btn_press_start_ms = 0;      // 押下開始時刻
 static bool     btn_long_fired = false;      // 今回の押下で長押しアクション済みか
+
+// Armスイッチ状態（デバウンス済み）。arm_sw_inhibit はゲームパッド切断後の
+// 誤再Arm防止: スイッチON据え置きのまま再接続しても、一度OFFに戻すまでArmしない。
+static bool     arm_sw_state = false;
+static bool     arm_sw_raw_prev = false;
+static uint32_t arm_sw_last_change_ms = 0;
+static bool     arm_sw_inhibit = false;
 
 // 再生状態（PLAYBACKモードで長押し or 'p' コマンドにより開始/停止）
 static bool     playback_running = false;
@@ -135,11 +148,6 @@ static inline int16_t axis_invert(int16_t v) {
     return (v == INT16_MIN) ? INT16_MAX : (int16_t)-v;
 }
 
-// Arm(CH7)のトグルラッチ。ゲームパッドのAは押しボタン（モーメンタリ）で
-// 押し続けられないため、押下エッジごとにArm/Disarmを切り替える。
-static bool arm_latched = false;
-static uint16_t prev_buttons = 0;
-
 // ゲームパッド入力をCRSFチャンネルにマッピング
 static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
     // 標準的なドローン操縦マッピング (Mode 2)
@@ -160,13 +168,9 @@ static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
     crsf_channels[5] = crsf_normalize_channel(gamepad->axes[GAMEPAD_AXIS_R2]);
 
     // ボタンをスイッチチャンネルにマッピング
-    // A/Crossボタン → CH7 (Arm): 押下エッジでトグル
-    if ((gamepad->buttons & GAMEPAD_BTN_A) && !(prev_buttons & GAMEPAD_BTN_A)) {
-        arm_latched = !arm_latched;
-        printf("# %s\n", arm_latched ? "ARM" : "DISARM");
-    }
-    prev_buttons = gamepad->buttons;
-    crsf_channels[6] = arm_latched ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
+    // CH7 (Arm): GP3 の物理トグルスイッチ（ON=Arm）。Aボタンでは操作しない。
+    crsf_channels[6] = (arm_sw_state && !arm_sw_inhibit) ? CRSF_CHANNEL_MAX
+                                                         : CRSF_CHANNEL_MIN;
     // B/Circleボタン → CH8
     crsf_channels[7] = (gamepad->buttons & GAMEPAD_BTN_B) ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
 
@@ -192,9 +196,9 @@ static void set_failsafe_channels(void) {
     }
     crsf_channels[2] = CRSF_CHANNEL_MIN;  // CH3 Throttle 最小
     crsf_channels[6] = CRSF_CHANNEL_MIN;  // CH7 Arm 解除（最重要: モーター停止）
-    // Armトグルもリセット（再接続した瞬間に勝手にArmが復活しないように）
-    arm_latched = false;
-    prev_buttons = 0;
+    // スイッチON据え置きのまま再接続しても勝手に再Armしないようインヒビット。
+    // スイッチを一度OFFに戻すと解除される（poll_arm_switch参照）。
+    if (arm_sw_state) arm_sw_inhibit = true;
 }
 
 // ========================================
@@ -410,6 +414,11 @@ static void init_mode_io(void) {
     gpio_set_dir(MODE_BTN_PIN, GPIO_IN);
     gpio_pull_up(MODE_BTN_PIN);
 
+    // Armスイッチ: 入力 + 内部プルアップ（ON=GND短絡でLow）
+    gpio_init(ARM_SW_PIN);
+    gpio_set_dir(ARM_SW_PIN, GPIO_IN);
+    gpio_pull_up(ARM_SW_PIN);
+
     // モードLED: 出力
     gpio_init(LED_RECORD_PIN);   gpio_set_dir(LED_RECORD_PIN,   GPIO_OUT);
     gpio_init(LED_PLAYBACK_PIN); gpio_set_dir(LED_PLAYBACK_PIN, GPIO_OUT);
@@ -479,6 +488,29 @@ static void poll_mode_button(void) {
     }
 }
 
+// Armスイッチをポーリング（デバウンス: 30ms安定で確定）。ON(Low)=Arm。
+// OFFを観測したら切断インヒビットを解除する。
+static void poll_arm_switch(void) {
+    bool raw = (gpio_get(ARM_SW_PIN) == 0);  // ON=true
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+
+    if (raw != arm_sw_raw_prev) {
+        arm_sw_raw_prev = raw;
+        arm_sw_last_change_ms = now;
+    } else if (raw != arm_sw_state &&
+               (now - arm_sw_last_change_ms) >= ARM_SW_DEBOUNCE_MS) {
+        arm_sw_state = raw;
+        if (!raw) {
+            arm_sw_inhibit = false;  // OFFに戻した → 次のONからArm有効
+            printf("# DISARM (switch off)\n");
+        } else if (arm_sw_inhibit) {
+            printf("# ARM inhibited: turn switch OFF once to re-enable\n");
+        } else {
+            printf("# ARM (switch on)\n");
+        }
+    }
+}
+
 static void init_channels(void) {
     // 全チャンネルを安全な初期値に設定
     // スロットルは最小、他は中央
@@ -526,8 +558,9 @@ int main() {
         // デバッグUARTからのコマンド処理（d=snapshot, s=stream, ?=help）
         dbg_poll_commands();
 
-        // モード切替ボタン（GP2）のポーリング
+        // モード切替ボタン（GP2）・Armスイッチ（GP3）のポーリング
         poll_mode_button();
+        poll_arm_switch();
 
         // 現在時刻を取得
         uint32_t now = to_ms_since_boot(get_absolute_time());
