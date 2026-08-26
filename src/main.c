@@ -55,6 +55,53 @@
 // 長押し判定のしきい値（これ以上保持で「長押し」= 再生start/stop）
 #define MODE_BTN_LONG_MS     600
 
+// ========================================
+// 入力プロファイル切替 (ボタン + LED2つ)
+// ========================================
+// スティックが自動中央復帰する汎用ゲームパッドと、位置が保持される
+// LiteRadio3のジンバルでは、スロットルの解釈を変える必要がある。
+// GP6のボタンで切り替え、GP13/GP14のLEDで現在のプロファイルを表示する。
+// ピン選定: GP6はpin9でGND(pin8)が隣。GP13(pin17)/GP14(pin19)はGND(pin18)を
+// 挟んで両隣なのでLED2つのカソードを1点にまとめられる。
+// （GP3はArmスイッチ用に予約。GP15=pin20は本個体にヘッダ未実装のため使わない）
+#define INPUT_BTN_PIN            6
+#define LED_INPUT_GENERIC_PIN    13  // 汎用ゲームパッド（スロットル積算）
+#define LED_INPUT_LITERADIO_PIN  14  // LiteRadio3（スロットル絶対値）
+#define INPUT_BTN_DEBOUNCE_MS    30
+
+// スロットル積算のパラメータ（INPUT_GENERIC時のみ有効）
+// フルデフレクションでスロットルが最小→最大まで動くのに要する時間。
+// 短いほど機敏だが荒くなる。
+#define THROTTLE_FULL_TRAVEL_MS  2000
+// 中央付近の不感帯（軸のフルスケール32767に対する値）。
+// スティックのジッタでスロットルが勝手に流れるのを防ぐ。
+#define THROTTLE_DEADZONE        3000
+// 1フレームで進める最大時間。フラッシュ書込み等でループが止まった直後に
+// スロットルが一気に飛ぶのを防ぐ。
+#define THROTTLE_MAX_DT_MS       20
+
+// 入力プロファイル（ボタン押下で GENERIC ⇔ LITERADIO をトグル）
+typedef enum {
+    INPUT_GENERIC = 0,   // 汎用ゲームパッド: 左スティック上下=スロットルの増減率
+    INPUT_LITERADIO,     // LiteRadio3: 左スティック位置=スロットル絶対値
+    INPUT_PROFILE_COUNT
+} input_profile_t;
+
+// 起動時は手持ちの汎用ゲームパッド。LiteRadioは接続時に手動で切り替える。
+static input_profile_t current_input = INPUT_GENERIC;
+
+// 入力プロファイル切替ボタンの状態（デバウンス用）
+static bool     ibtn_pressed_state = false;
+static uint32_t ibtn_last_change_ms = 0;
+
+// スロットル積算値（CRSF単位×1000のミリ単位で保持し、丸め誤差の蓄積を防ぐ）
+static int32_t  throttle_accum_milli = (int32_t)CRSF_CHANNEL_MIN * 1000;
+static uint32_t throttle_last_update_ms = 0;
+
+// 実体はLED制御と並べて後述。UARTコマンド 'i' からも呼ぶため先に宣言する。
+static void input_profile_toggle(void);
+static const char* input_name(input_profile_t p);
+
 // 動作モード（押下で SIMPLE→RECORD→PLAYBACK→SIMPLE… と循環）
 typedef enum {
     MODE_SIMPLE = 0,   // 単純: gamepad → CRSF（現行のパススルー）
@@ -140,8 +187,45 @@ static inline int16_t axis_invert(int16_t v) {
 static bool arm_latched = false;
 static uint16_t prev_buttons = 0;
 
+// スロットル積算値を最小にリセットする。
+// Disarm時・切断時・プロファイル切替時に呼び、直前のスロットルが
+// 意図せず引き継がれないようにする。
+static void throttle_reset(void) {
+    throttle_accum_milli = (int32_t)CRSF_CHANNEL_MIN * 1000;
+}
+
+// 汎用ゲームパッド用のスロットル積算。
+// 自動中央復帰するスティックでは位置をそのままスロットルにできないため、
+// スティックの倒し量を「増減の速さ」として積分する（中央=現在値を保持）。
+// 戻り値: CRSF単位のスロットル値。
+static uint16_t throttle_accumulate(int16_t stick_up, uint32_t now) {
+    // 経過時間。初回およびループ停止直後は上限で頭打ちにする。
+    uint32_t dt = now - throttle_last_update_ms;
+    throttle_last_update_ms = now;
+    if (dt > THROTTLE_MAX_DT_MS) dt = THROTTLE_MAX_DT_MS;
+
+    // 不感帯を差し引き、残りを 0〜32767 に引き伸ばす
+    int32_t mag = stick_up < 0 ? -(int32_t)stick_up : (int32_t)stick_up;
+    if (mag > THROTTLE_DEADZONE) {
+        mag = (mag - THROTTLE_DEADZONE) * 32767 / (32767 - THROTTLE_DEADZONE);
+        int32_t range_milli = (int32_t)(CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN) * 1000;
+        // delta = 全可動域 × (倒し量/フルスケール) × (dt/フル移動時間)
+        int32_t delta = (int32_t)((int64_t)range_milli * mag * dt
+                                  / ((int64_t)32767 * THROTTLE_FULL_TRAVEL_MS));
+        throttle_accum_milli += (stick_up < 0) ? -delta : delta;
+
+        if (throttle_accum_milli < (int32_t)CRSF_CHANNEL_MIN * 1000) {
+            throttle_accum_milli = (int32_t)CRSF_CHANNEL_MIN * 1000;
+        } else if (throttle_accum_milli > (int32_t)CRSF_CHANNEL_MAX * 1000) {
+            throttle_accum_milli = (int32_t)CRSF_CHANNEL_MAX * 1000;
+        }
+    }
+
+    return (uint16_t)(throttle_accum_milli / 1000);
+}
+
 // ゲームパッド入力をCRSFチャンネルにマッピング
-static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
+static void map_gamepad_to_channels(const gamepad_state_t *gamepad, uint32_t now) {
     // 標準的なドローン操縦マッピング (Mode 2)
     // CH1: Roll     (右スティック X)
     // CH2: Pitch    (右スティック Y) ※反転
@@ -150,8 +234,17 @@ static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
 
     crsf_channels[0] = crsf_normalize_channel(gamepad->axes[GAMEPAD_AXIS_RX]);  // Roll
     crsf_channels[1] = crsf_normalize_channel(axis_invert(gamepad->axes[GAMEPAD_AXIS_RY])); // Pitch (反転)
-    crsf_channels[2] = crsf_normalize_channel(axis_invert(gamepad->axes[GAMEPAD_AXIS_LY])); // Throttle (反転)
     crsf_channels[3] = crsf_normalize_channel(gamepad->axes[GAMEPAD_AXIS_LX]);  // Yaw
+
+    // CH3 Throttle: 入力プロファイルで解釈が変わる
+    int16_t stick_up = axis_invert(gamepad->axes[GAMEPAD_AXIS_LY]);  // 上=正
+    if (current_input == INPUT_GENERIC) {
+        // 自動中央復帰スティック: 倒し量を増減率として積算（中央=保持）
+        crsf_channels[2] = throttle_accumulate(stick_up, now);
+    } else {
+        // LiteRadio3: ジンバル位置がそのままスロットル
+        crsf_channels[2] = crsf_normalize_channel(stick_up);
+    }
 
     // CH5-8: トリガーとボタン
     // L2トリガー → CH5
@@ -163,6 +256,9 @@ static void map_gamepad_to_channels(const gamepad_state_t *gamepad) {
     // A/Crossボタン → CH7 (Arm): 押下エッジでトグル
     if ((gamepad->buttons & GAMEPAD_BTN_A) && !(prev_buttons & GAMEPAD_BTN_A)) {
         arm_latched = !arm_latched;
+        // Disarmしたら積算スロットルも最小に戻す。次のArmで前回の
+        // スロットルのまま回り出すのを防ぐ。
+        if (!arm_latched) throttle_reset();
         printf("# %s\n", arm_latched ? "ARM" : "DISARM");
     }
     prev_buttons = gamepad->buttons;
@@ -195,6 +291,8 @@ static void set_failsafe_channels(void) {
     // Armトグルもリセット（再接続した瞬間に勝手にArmが復活しないように）
     arm_latched = false;
     prev_buttons = 0;
+    // 積算スロットルもリセット（再接続で前回のスロットルが復活しないように）
+    throttle_reset();
 }
 
 // ========================================
@@ -340,10 +438,16 @@ static void dbg_poll_commands(void) {
             case 'p': case 'P':
                 playback_toggle();  // PLAYBACKモードでのみ有効
                 break;
+            case 'i': case 'I':
+                input_profile_toggle();
+                break;
             case '?':
-                printf("# commands: d=snapshot  s=toggle stream  p=play/stop(PLAYBACK)  ?=help\n");
-                printf("# button: short=cycle mode  long(%.1fs)=play/stop in PLAYBACK\n",
-                       MODE_BTN_LONG_MS / 1000.0);
+                printf("# commands: d=snapshot  s=toggle stream  p=play/stop(PLAYBACK)"
+                       "  i=input profile  ?=help\n");
+                printf("# mode button(GP%d): short=cycle mode  long(%.1fs)=play/stop in PLAYBACK\n",
+                       MODE_BTN_PIN, MODE_BTN_LONG_MS / 1000.0);
+                printf("# input button(GP%d): switch GENERIC(accum) <-> LITERADIO(direct)"
+                       " [now: %s]\n", INPUT_BTN_PIN, input_name(current_input));
                 break;
             default:
                 break;
@@ -404,18 +508,67 @@ static void update_mode_leds(void) {
     gpio_put(LED_SIMPLE_PIN,   current_mode == MODE_SIMPLE);
 }
 
+static const char* input_name(input_profile_t p) {
+    switch (p) {
+        case INPUT_GENERIC:   return "GENERIC(accum)";
+        case INPUT_LITERADIO: return "LITERADIO(direct)";
+        default:              return "?";
+    }
+}
+
+// 現在の入力プロファイルに応じて2つのLEDを1つだけ点灯させる。
+static void update_input_leds(void) {
+    gpio_put(LED_INPUT_GENERIC_PIN,   current_input == INPUT_GENERIC);
+    gpio_put(LED_INPUT_LITERADIO_PIN, current_input == INPUT_LITERADIO);
+}
+
 static void init_mode_io(void) {
     // ボタン: 入力 + 内部プルアップ（押下でLowに落ちる）
     gpio_init(MODE_BTN_PIN);
     gpio_set_dir(MODE_BTN_PIN, GPIO_IN);
     gpio_pull_up(MODE_BTN_PIN);
 
+    // 入力プロファイル切替ボタン: 同上
+    gpio_init(INPUT_BTN_PIN);
+    gpio_set_dir(INPUT_BTN_PIN, GPIO_IN);
+    gpio_pull_up(INPUT_BTN_PIN);
+
     // モードLED: 出力
     gpio_init(LED_RECORD_PIN);   gpio_set_dir(LED_RECORD_PIN,   GPIO_OUT);
     gpio_init(LED_PLAYBACK_PIN); gpio_set_dir(LED_PLAYBACK_PIN, GPIO_OUT);
     gpio_init(LED_SIMPLE_PIN);   gpio_set_dir(LED_SIMPLE_PIN,   GPIO_OUT);
 
+    // 入力プロファイルLED: 出力
+    gpio_init(LED_INPUT_GENERIC_PIN);
+    gpio_set_dir(LED_INPUT_GENERIC_PIN, GPIO_OUT);
+    gpio_init(LED_INPUT_LITERADIO_PIN);
+    gpio_set_dir(LED_INPUT_LITERADIO_PIN, GPIO_OUT);
+
     update_mode_leds();
+    update_input_leds();
+}
+
+// 入力プロファイルを切り替える。スロットルの解釈が変わるため、
+// 積算値は必ず最小へリセットしてから切り替える。
+static void input_profile_toggle(void) {
+    current_input = (input_profile_t)((current_input + 1) % INPUT_PROFILE_COUNT);
+    throttle_reset();
+    update_input_leds();
+    printf("# input -> %s\n", input_name(current_input));
+}
+
+// 入力プロファイル切替ボタン（GP6）をポーリング。短押しでトグル。
+static void poll_input_button(void) {
+    bool raw = (gpio_get(INPUT_BTN_PIN) == 0);  // 押下=true
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+
+    if (raw != ibtn_pressed_state && (now - ibtn_last_change_ms) >= INPUT_BTN_DEBOUNCE_MS) {
+        ibtn_last_change_ms = now;
+        ibtn_pressed_state = raw;
+        if (!raw) {  // 離したときに確定（押しっぱなしでの連続切替を防ぐ）
+            input_profile_toggle();
+        }
+    }
 }
 
 // モードを1つ進め、記録の開始/停止など遷移に伴う処理を行う（短押し時）。
@@ -512,6 +665,7 @@ int main() {
     usb_gamepad_init();
 
     printf("Mode: %s (press GP%d button to cycle)\n", mode_name(current_mode), MODE_BTN_PIN);
+    printf("Input: %s (press GP%d button to switch)\n", input_name(current_input), INPUT_BTN_PIN);
 
     printf("USB Host initialized, waiting for gamepad...\n");
     printf("\n");
@@ -526,8 +680,9 @@ int main() {
         // デバッグUARTからのコマンド処理（d=snapshot, s=stream, ?=help）
         dbg_poll_commands();
 
-        // モード切替ボタン（GP2）のポーリング
+        // モード切替ボタン（GP2）・入力プロファイル切替ボタン（GP6）のポーリング
         poll_mode_button();
+        poll_input_button();
 
         // 現在時刻を取得
         uint32_t now = to_ms_since_boot(get_absolute_time());
@@ -547,7 +702,7 @@ int main() {
                 case MODE_RECORD:
                     // 単純/記録: ゲームパッド入力を channels にマッピング
                     if (gamepad->connected) {
-                        map_gamepad_to_channels(gamepad);
+                        map_gamepad_to_channels(gamepad, now);
                         gpio_put(LED_PIN, 1);  // 接続中: 内蔵LED点灯
                     } else {
                         // 未接続: フェイルセーフ値を送出（スロットル最小・Arm解除）。
