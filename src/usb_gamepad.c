@@ -1,4 +1,5 @@
 #include "usb_gamepad.h"
+#include "hid_parser.h"
 #include <stddef.h>
 #include <stdio.h>
 
@@ -31,6 +32,10 @@ static uint16_t last_raw_len = 0;
 
 // マウント毎に1本目のレポート長を通知するためのフラグ（mount時にリセット）
 static bool first_report_logged = false;
+
+// レポートディスクリプタから求めたレイアウト。VID/PID専用パーサが無い
+// デバイス（LiteRadio 3 等）はこれで読む。
+static hid_layout_t hid_layout;
 
 void usb_gamepad_init(void) {
     board_init();
@@ -214,10 +219,29 @@ void tuh_umount_cb(uint8_t dev_addr) {
 }
 
 // TinyUSB コールバック: HIDデバイスがマウントされた
+// 解析したレイアウトをUARTに出す。未知のゲームパッドを繋いだとき、
+// どの軸がどこに割り当たったかを実機で確認できるようにする。
+static void log_hid_layout(const hid_layout_t *l) {
+    static const char *axis_names[GAMEPAD_MAX_AXES] = {
+        "LX", "LY", "RX", "RY", "L2", "R2", "A6", "A7"
+    };
+    if (!l->valid) {
+        printf("# HID layout: not usable (falling back to fixed byte offsets)\n");
+        return;
+    }
+    printf("# HID layout: report_id=%u buttons=%u@bit%u hat=%s\n",
+           l->report_id, l->button_count, l->button_bit_offset,
+           l->hat.present ? "yes" : "no");
+    for (int a = 0; a < GAMEPAD_MAX_AXES; a++) {
+        if (!l->axes[a].present) continue;
+        printf("#   %s: bit%u size%u range %ld..%ld\n",
+               axis_names[a], l->axes[a].bit_offset, l->axes[a].bit_size,
+               (long)l->axes[a].logical_min, (long)l->axes[a].logical_max);
+    }
+}
+
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
                       uint8_t const *desc_report, uint16_t desc_len) {
-    (void)desc_report;
-
     uint16_t vid, pid;
     tuh_vid_pid_get(dev_addr, &vid, &pid);
 
@@ -233,6 +257,10 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
            dev_addr, instance, vid, pid,
            tuh_hid_interface_protocol(dev_addr, instance), desc_len);
 
+    // レポートディスクリプタを解析しておく（VID/PID専用パーサが無い機種用）
+    hid_parse_report_descriptor(desc_report, desc_len, &hid_layout);
+    log_hid_layout(&hid_layout);
+
     // レポート受信を開始
     if (!tuh_hid_receive_report(dev_addr, instance)) {
         printf("# HID receive_report FAILED (addr=%u inst=%u)\n", dev_addr, instance);
@@ -246,6 +274,8 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     gamepad_state.connected = false;
     hid_dev_addr = 0;
     hid_instance = 0;
+    // 別の機種を挿し直したときに前のレイアウトで誤読しないようクリア
+    hid_layout.valid = false;
 }
 
 // TinyUSB コールバック: HIDレポートを受信した
@@ -269,10 +299,16 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
         (gamepad_state.pid == 0x09CC || gamepad_state.pid == 0x05C4)) {
         process_ds4_report(report, len);
     } else if (gamepad_state.vid == 0x046D && gamepad_state.pid == 0xC216) {
-        // Logitech F310 (Dモード / Dual Action)
+        // Logitech F310 (Dモード / Dual Action)。実機検証済みの専用パーサを優先。
         process_f310_report(report, len);
+    } else if (hid_layout.valid &&
+               hid_extract_state(&hid_layout, report, len, &gamepad_state)) {
+        // ディスクリプタから求めたレイアウトで解析（未知の機種はこの経路）
+        if (state_callback) {
+            state_callback(&gamepad_state);
+        }
     } else {
-        // 汎用ゲームパッドとして処理
+        // ディスクリプタが読めない機種向けの最終手段（バイト位置決め打ち）
         process_gamepad_report(report, len);
     }
 

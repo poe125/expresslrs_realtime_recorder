@@ -21,8 +21,15 @@ Raspberry Pi Pico
 - **機体**: BetaFPV Pavo Pico II（F4 2-3S 20A AIO FC, Serial ELRS 2.4G受信機内蔵）
 
 ## 開発環境
-- **SDK**: Pico SDK (C/C++)
+- **SDK**: Pico SDK (C/C++) — `/Users/akihito/pico-sdk`
+- **ツールチェイン**: `/Users/akihito/gcc-arm-none-eabi`（**Homebrewの arm-none-eabi-gcc は `nosys.specs` を持たずリンクに失敗する**ので使わない）
 - **ビルド**: CMake + Make
+
+⚠️ `build/` で cmake を再実行するときは必ず両方のパスを渡すこと（キャッシュを消すと環境が失われる）:
+```bash
+PICO_SDK_PATH=/Users/akihito/pico-sdk PICO_TOOLCHAIN_PATH=/Users/akihito/gcc-arm-none-eabi cmake ..
+```
+※ SDK内 `hcd_rp2040.c` にF310用のローカル改変（DATA1ワークアラウンド）があり、SDKを入れ直すと失われる。
 
 ## ピン配置
 | Picoピン | 機能 | 接続先 |
@@ -129,8 +136,25 @@ GP2のボタンで3モードを循環し、GP10-12のLEDで現在モードを表
 - **積算値が最小にリセットされる条件**: Disarm時 / ゲームパッド切断時 / プロファイル切替時。前回のスロットルを引き継いだまま再Armして急に回り出すのを防ぐ。
 - フラッシュ書込み等でループが止まっても飛ばないよう、1フレームで進める時間に上限（20ms）を設けている。
 
-> ⚠️ **LiteRadio3のHIDパーサは未実装**。このプロファイル切替は「スロットルの解釈」だけを変えるもので、
-> HIDレポートの解析はVID/PIDによる自動判別（`usb_gamepad.c`）。LiteRadio3入手後に専用パーサの追加が必要。
+### HIDレポート解析（未知のゲームパッド対応）
+LiteRadio 3 のような**手元に無いデバイスにもバイト位置決め打ちでは対応できない**ため、
+`src/hid_parser.c` で**HIDレポートディスクリプタを解析**し、軸・ボタンのビット位置を
+自動で求める。全てのHIDデバイスがディスクリプタを自己申告するので、原理的にどの
+ゲームパッドでも読める。解析の優先順位は:
+
+1. **VID/PID専用パーサ**（DualShock4 / F310）— 実機検証済みなので最優先
+2. **ディスクリプタ解析**（`hid_parser.c`）— 未知の機種はここ。**LiteRadio 3 もこの経路**
+3. バイト位置決め打ち（ディスクリプタが読めない機種の最終手段）
+
+軸のマッピングは Generic Desktop の Usage から決める:
+`X→LX, Y→LY, Z→RX, Rz→RY, Rx→L2, Ry→R2`。
+ただし **Z/Rz が無く Rx/Ry がある機種（ラジオ送信機に多い）では Rx→RX, Ry→RY** に割り当てる。
+
+接続時にデバッグUARTへ **解析結果（各軸のビット位置・サイズ・論理範囲）を出力**するので、
+実機での答え合わせができる。想定と違えば `assign_axes()` を直す。
+
+> ⚠️ **LiteRadio 3 は未検証**（実機未入手）。ディスクリプタ解析は汎用なので動く見込みだが、
+> 初回接続時は必ず `# HID layout:` の出力と Betaflight Receiverタブで軸の対応を確認すること。
 
 ### 記録の仕組み
 - 500Hz送信を **1/10間引き=50Hz** で記録。スティックは十分な帯域、送信自体は500Hzのまま。

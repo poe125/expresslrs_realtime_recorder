@@ -32,6 +32,7 @@ if(BUILD_TESTS)
     # USB Gamepadライブラリ（テスト用）
     add_library(usb_gamepad_lib
         src/usb_gamepad.c
+        src/hid_parser.c
     )
     target_include_directories(usb_gamepad_lib PUBLIC include)
 
@@ -62,6 +63,16 @@ if(BUILD_TESTS)
     )
     target_include_directories(test_usb_gamepad PRIVATE include)
 
+    # HIDディスクリプタ解析テスト（未知のゲームパッド対応の要）
+    add_executable(test_hid_parser
+        tests/test_hid_parser.cpp
+    )
+    target_link_libraries(test_hid_parser
+        usb_gamepad_lib
+        GTest::gtest_main
+    )
+    target_include_directories(test_hid_parser PRIVATE include)
+
     # Recorderテスト（間引き・ボタンラッチのロジック検証）
     add_executable(test_recorder
         tests/test_recorder.cpp
@@ -77,6 +88,7 @@ if(BUILD_TESTS)
     # したいので add_test で登録する（各バイナリを1テストとして実行）。
     add_test(NAME test_crsf        COMMAND test_crsf)
     add_test(NAME test_usb_gamepad COMMAND test_usb_gamepad)
+    add_test(NAME test_hid_parser  COMMAND test_hid_parser)
     add_test(NAME test_recorder    COMMAND test_recorder)
 
 else()
@@ -99,6 +111,7 @@ else()
         src/main.c
         src/crsf.c
         src/usb_gamepad.c
+        src/hid_parser.c
         src/recorder.c
     )
 
