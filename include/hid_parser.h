@@ -29,6 +29,9 @@ typedef struct {
     bool        valid;              // 軸が1つ以上見つかったか
     uint8_t     report_id;          // 0 = レポートIDなし（先頭バイトから本体）
     hid_field_t axes[GAMEPAD_MAX_AXES];
+    // ディスクリプタに現れた順の軸。ラジオ送信機ではこれがチャンネル順になる。
+    hid_field_t channels[GAMEPAD_MAX_AXES];
+    uint8_t     channel_count;
     uint16_t    button_bit_offset;
     uint8_t     button_count;       // 0 = ボタン無し
     hid_field_t hat;                // ハットスイッチ（D-Pad）

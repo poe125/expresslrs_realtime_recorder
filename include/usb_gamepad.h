@@ -14,8 +14,14 @@ extern "C" {
 
 // ゲームパッドの状態
 typedef struct {
-    // アナログ軸（-32768 〜 32767）
+    // アナログ軸（-32768 〜 32767）。ゲームパッドのスティック意味づけ。
     int16_t axes[GAMEPAD_MAX_AXES];
+    // ラジオ送信機用: ディスクリプタ順（=チャンネル順 CH1,CH2,…）の生値。
+    // 送信機はスティックではなくAETR等のチャンネル順で軸を並べるため、
+    // スティックへ読み替えず素通しするための経路。
+    // VID/PID専用パーサ（F310/DS4）使用時は channel_count = 0。
+    int16_t channels[GAMEPAD_MAX_AXES];
+    uint8_t channel_count;
     // ボタン状態（ビットフラグ）
     uint16_t buttons;
     // 接続状態

@@ -119,6 +119,47 @@ TEST(HidParserTest, MapsRxRyToRightStickWhenNoZRz) {
     EXPECT_FALSE(l.axes[GAMEPAD_AXIS_R2].present);
 }
 
+TEST(HidParserTest, RecordsAxesInDescriptorOrderAsChannels) {
+    // 送信機はスティックではなくチャンネル順（AETR）で軸を並べる。
+    // ディスクリプタ順をそのまま channels[] に保持していること。
+    auto desc = DescRadio16bitRxRy();
+    hid_layout_t l;
+    ASSERT_TRUE(hid_parse_report_descriptor(desc.data(), desc.size(), &l));
+
+    ASSERT_EQ(l.channel_count, 4);
+    EXPECT_EQ(l.channels[0].bit_offset, 0);   // X
+    EXPECT_EQ(l.channels[1].bit_offset, 16);  // Y
+    EXPECT_EQ(l.channels[2].bit_offset, 32);  // Rx
+    EXPECT_EQ(l.channels[3].bit_offset, 48);  // Ry
+}
+
+TEST(HidExtractTest, ExtractsChannelsInOrder) {
+    auto desc = DescRadio16bitRxRy();
+    hid_layout_t l;
+    ASSERT_TRUE(hid_parse_report_descriptor(desc.data(), desc.size(), &l));
+
+    gamepad_state_t s = {};
+    // ID=1, X=0(最小), Y=2047(最大), Rx=1023(中央), Ry=0
+    uint8_t rep[9] = { 0x01, 0x00, 0x00, 0xFF, 0x07, 0xFF, 0x03, 0x00, 0x00 };
+    ASSERT_TRUE(hid_extract_state(&l, rep, sizeof(rep), &s));
+
+    ASSERT_EQ(s.channel_count, 4);
+    EXPECT_EQ(s.channels[0], -32768);
+    EXPECT_EQ(s.channels[1], 32767);
+    EXPECT_NEAR(s.channels[2], 0, 100);
+    EXPECT_EQ(s.channels[3], -32768);
+}
+
+TEST(HidParserTest, HatIsNotCountedAsChannel) {
+    // ハットはアナログチャンネルではないので channels[] に混ぜない
+    auto desc = DescGamepad4Axis();
+    hid_layout_t l;
+    ASSERT_TRUE(hid_parse_report_descriptor(desc.data(), desc.size(), &l));
+
+    EXPECT_EQ(l.channel_count, 4);  // X,Y,Z,Rz のみ
+    EXPECT_TRUE(l.hat.present);
+}
+
 TEST(HidParserTest, RejectsGarbageDescriptor) {
     // 軸が1つも無いディスクリプタは valid にならない（決め打ちパーサへ落ちる）
     uint8_t desc[] = { 0x05, 0x01, 0xA1, 0x01, 0xC0 };

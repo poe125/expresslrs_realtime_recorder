@@ -250,6 +250,12 @@ bool hid_parse_report_descriptor(const uint8_t *desc, uint16_t len, hid_layout_t
                                         target_locked = true;
                                         target_report_id = report_id;
                                     }
+                                    // ハット以外はチャンネル順にも控えておく。
+                                    // 送信機ではこの並びが CH1, CH2, … になる。
+                                    if (u != USAGE_HAT &&
+                                        out->channel_count < GAMEPAD_MAX_AXES) {
+                                        out->channels[out->channel_count++] = *slot;
+                                    }
                                 }
                             }
                         }
@@ -337,6 +343,14 @@ bool hid_extract_state(const hid_layout_t *layout, const uint8_t *report,
         if (!f->present) continue;
         state->axes[a] = normalize_field(f, extract_bits(report, len,
                                                          f->bit_offset, f->bit_size));
+    }
+
+    // チャンネル順（送信機用）。ディスクリプタに現れた順のまま。
+    state->channel_count = layout->channel_count;
+    for (uint8_t c = 0; c < layout->channel_count && c < GAMEPAD_MAX_AXES; c++) {
+        const hid_field_t *f = &layout->channels[c];
+        state->channels[c] = normalize_field(f, extract_bits(report, len,
+                                                             f->bit_offset, f->bit_size));
     }
 
     uint16_t buttons = 0;

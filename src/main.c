@@ -224,6 +224,30 @@ static uint16_t throttle_accumulate(int16_t stick_up, uint32_t now) {
     return (uint16_t)(throttle_accum_milli / 1000);
 }
 
+// ラジオ送信機（LiteRadio 3 等）用のマッピング。
+// 送信機はスティックではなく AETR のチャンネル順で軸を並べるため、
+// ゲームパッドのスティック解釈を挟まず CH1〜 をそのまま素通しする。
+//   実測 (2026-08-26, LiteRadio 3 = VID 0483 PID 572B):
+//     ch0=X エルロン / ch1=Y エレベーター / ch2=Z スロットル / ch3=Rx ラダー
+// スロットルはジンバルが位置を保持するので積算しない（絶対値）。
+static void map_radio_to_channels(const gamepad_state_t *gamepad) {
+    uint8_t n = gamepad->channel_count;
+    if (n > 6) n = 6;  // CH7以降はボタン用に残す
+    for (uint8_t c = 0; c < n; c++) {
+        crsf_channels[c] = crsf_normalize_channel(gamepad->channels[c]);
+    }
+    // 送信機のスイッチはボタンとして届くので、CH7〜CH12 は従来通り割り当てる
+    crsf_channels[6]  = (gamepad->buttons & GAMEPAD_BTN_A)  ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
+    crsf_channels[7]  = (gamepad->buttons & GAMEPAD_BTN_B)  ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
+    crsf_channels[8]  = (gamepad->buttons & GAMEPAD_BTN_X)  ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
+    crsf_channels[9]  = (gamepad->buttons & GAMEPAD_BTN_Y)  ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
+    crsf_channels[10] = (gamepad->buttons & GAMEPAD_BTN_LB) ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
+    crsf_channels[11] = (gamepad->buttons & GAMEPAD_BTN_RB) ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN;
+    for (int i = 12; i < CRSF_NUM_CHANNELS; i++) {
+        crsf_channels[i] = CRSF_CHANNEL_MID;
+    }
+}
+
 // ゲームパッド入力をCRSFチャンネルにマッピング
 static void map_gamepad_to_channels(const gamepad_state_t *gamepad, uint32_t now) {
     // 標準的なドローン操縦マッピング (Mode 2)
@@ -382,6 +406,15 @@ static void dbg_dump_snapshot(const uint8_t *frame, size_t frame_len) {
            gp->axes[GAMEPAD_AXIS_RX], gp->axes[GAMEPAD_AXIS_RY],
            gp->axes[GAMEPAD_AXIS_L2], gp->axes[GAMEPAD_AXIS_R2],
            gp->buttons, gp->connected, gp->vid, gp->pid);
+
+    // ②' チャンネル順の生値（送信機用。ディスクリプタに現れた順＝CH1,CH2,…）
+    if (gp->channel_count > 0) {
+        printf("(2') channels:");
+        for (uint8_t c = 0; c < gp->channel_count; c++) {
+            printf(" c%u=%d", c + 1, gp->channels[c]);
+        }
+        printf("\n");
+    }
 
     // ③ CRSFチャンネル（normalize後）
     printf("(3) CRSF ch:");
@@ -702,7 +735,14 @@ int main() {
                 case MODE_RECORD:
                     // 単純/記録: ゲームパッド入力を channels にマッピング
                     if (gamepad->connected) {
-                        map_gamepad_to_channels(gamepad, now);
+                        // LITERADIOプロファイル かつ チャンネル順の軸が取れている
+                        // 送信機は素通し。それ以外はゲームパッドとして解釈する。
+                        if (current_input == INPUT_LITERADIO &&
+                            gamepad->channel_count >= 4) {
+                            map_radio_to_channels(gamepad);
+                        } else {
+                            map_gamepad_to_channels(gamepad, now);
+                        }
                         gpio_put(LED_PIN, 1);  // 接続中: 内蔵LED点灯
                     } else {
                         // 未接続: フェイルセーフ値を送出（スロットル最小・Arm解除）。
