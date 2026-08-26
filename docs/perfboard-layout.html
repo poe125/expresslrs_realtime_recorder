@@ -320,7 +320,7 @@
   wire(col("--net-gnd"),[[6,8],[4.2,8]]);
 
   // LEDs + resistors
-  block(0.6,13.4,4.6,16.6,"MODE LED","330Ω×3",col("--net-ui"));
+  block(0.6,13.4,4.6,16.6,"MODE LED","100Ω×3",col("--net-ui"));
   const ledc={14:["赤",col("--net-hv")],15:["緑",col("--net-crsf")],16:["青",col("--net-dbg")]};
   [14,15,16].forEach((pin,i)=>{
     const r=pin; // rows 14,15,16
@@ -358,9 +358,9 @@
     ["--net-dbg","DBG_TX","信号",'Pico GP4(pin6) <span class="arrow">→</span> USB-serial RXD'],
     ["--net-dbg","DBG_RX","信号",'Pico GP5(pin7) <span class="arrow">→</span> USB-serial TXD'],
     ["--net-ui","BTN","信号",'Pico GP2(pin4) <span class="arrow">→</span> タクトSW <span class="arrow">→</span> GND'],
-    ["--net-ui","LED_R","信号",'Pico GP10(pin14) <span class="arrow">→</span> 330Ω <span class="arrow">→</span> LED赤 <span class="arrow">→</span> GND'],
-    ["--net-ui","LED_G","信号",'Pico GP11(pin15) <span class="arrow">→</span> 330Ω <span class="arrow">→</span> LED緑 <span class="arrow">→</span> GND'],
-    ["--net-ui","LED_B","信号",'Pico GP12(pin16) <span class="arrow">→</span> 330Ω <span class="arrow">→</span> LED青 <span class="arrow">→</span> GND'],
+    ["--net-ui","LED_R","信号",'Pico GP10(pin14) <span class="arrow">→</span> 100Ω <span class="arrow">→</span> LED赤 <span class="arrow">→</span> GND'],
+    ["--net-ui","LED_G","信号",'Pico GP11(pin15) <span class="arrow">→</span> 100Ω <span class="arrow">→</span> LED緑 <span class="arrow">→</span> GND'],
+    ["--net-ui","LED_B","信号",'Pico GP12(pin16) <span class="arrow">→</span> 100Ω <span class="arrow">→</span> LED青 <span class="arrow">→</span> GND'],
   ];
   const tb=document.getElementById("netrows");
   nets.forEach(([v,name,type,mem])=>{
@@ -377,9 +377,9 @@
     ["4","GP2 · ボタン",'タクトSW → GND'],
     ["6","GP4 · debug TX",'USB-serial RXD'],
     ["7","GP5 · debug RX",'USB-serial TXD'],
-    ["14","GP10 · LED赤",'330Ω → 記録LED'],
-    ["15","GP11 · LED緑",'330Ω → 再生LED'],
-    ["16","GP12 · LED青",'330Ω → 単純LED'],
+    ["14","GP10 · LED赤",'100Ω → 記録LED'],
+    ["15","GP11 · LED緑",'100Ω → 再生LED'],
+    ["16","GP12 · LED青",'100Ω → 単純LED'],
     ["38","GND",'GND星'],
     ["40","VBUS",'Buck OUT+ (5.0V)'],
   ];

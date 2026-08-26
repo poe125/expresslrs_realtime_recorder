@@ -34,17 +34,18 @@ Raspberry Pi Pico
 | GP5 (pin7) | UART1 RX | PC (コマンド入力) |
 | GP2 (pin4) | モード切替ボタン | タクトSW → GND（内部プルアップ, 押下=Low） |
 | GP6 (pin9) | 入力切替ボタン | タクトSW → GND（GND=pin8が隣） |
-| GP10 (pin14) | モードLED 赤 | 記録(RECORD)点灯 (330Ω → GND) |
-| GP11 (pin15) | モードLED 緑 | 再生(PLAYBACK)点灯 (330Ω → GND) |
-| GP12 (pin16) | モードLED 青 | 単純(SIMPLE)点灯 (330Ω → GND) |
-| GP13 (pin17) | 入力LED 汎用 | GENERIC(積算)点灯 (330Ω → GND=pin18) |
-| GP14 (pin19) | 入力LED LiteRadio | LITERADIO(絶対値)点灯 (330Ω → GND=pin18) |
+| GP10 (pin14) | モードLED 赤 | 記録(RECORD)点灯 (100Ω → GND) |
+| GP11 (pin15) | モードLED 緑 | 再生(PLAYBACK)点灯 (100Ω → GND) |
+| GP12 (pin16) | モードLED 青 | 単純(SIMPLE)点灯 (100Ω → GND) |
+| GP13 (pin17) | 入力LED 汎用 | GENERIC(積算)点灯 (100Ω → GND=pin18) |
+| GP14 (pin19) | 入力LED LiteRadio | LITERADIO(絶対値)点灯 (100Ω → GND=pin18) |
 | VBUS (pin40) | 電源入力 | 降圧モジュール出力5V（LiPoから降圧、Pico＋ゲームパッド給電） |
 | GND (pin3 等) | グランド | 共通GND（下記参照） |
 | 内蔵LED | 状態表示 | 接続時:点灯 / 未接続:点滅 / 再生モード:速点滅 |
 
 ※GP2/GP10-12 の配置は参照図（`references/240529_104.jpg`, 63bit氏 R63b）に倣った空きGPIO。
 ※GP6/GP13/GP14 はGNDピンが隣接する空きGPIOから選定。**GP15(pin20)は本個体にヘッダ未実装のため使用不可**。GP3はArmスイッチ用に予約。
+※LEDの直列抵抗は**実機で100Ω**（参照図は330Ωだが、緑/青LEDは順方向電圧が3V前後あり330Ωでは暗いため100Ωを採用）。5個とも同じ値にして明るさを揃える。
 
 ## 電源・配線
 

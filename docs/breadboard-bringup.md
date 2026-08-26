@@ -32,7 +32,7 @@
 
 目的: ファームのUIロジックと GP2/GP10-12 配線を、ゲームパッド・TXなしで検証。
 
-配線追加: GP4→USB-シリアル変換RXD（GND共通）、GP2→タクトSW→GND、GP10/11/12→LED→330Ω→GND。
+配線追加: GP4→USB-シリアル変換RXD（GND共通）、GP2→タクトSW→GND、GP10/11/12→LED→100Ω→GND。
 
 1. [x] 書込: ゲームパッド・外部5Vを外し、BOOTSEL押しながらmicro-USB接続 → `./scripts/flash.sh` → 配線復帰。
 2. [x] `./scripts/monitor.sh`（921600bps）で起動バナー・`Mode: SIMPLE`・`signal inversion: ON` を確認。
