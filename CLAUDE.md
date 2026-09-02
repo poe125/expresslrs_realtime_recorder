@@ -2,7 +2,13 @@
 
 ## プロジェクト概要
 USBゲームパッドをExpressLRS送信機として使用するアダプター。
-Raspberry Pi PicoでゲームパッドのUSB HID入力を取得し、CRSFプロトコルに変換してExpressLRS送信モジュールに送信する。
+ゲームパッドのUSB HID入力を取得し、CRSFプロトコルに変換してExpressLRS送信モジュールに送信する。
+
+**2つのビルドターゲットがある**:
+- **Pico版**（本来の想定構成）: Raspberry Pi PicoがUSBホスト。以下のドキュメントは主にこちら向け。
+- **Pi4版**（`cmake -DBUILD_PI4=ON`）: ゲームパッドをRaspberry Pi 4のUSBポートに直接挿す構成。
+  詳細は [Raspberry Pi 4版](#raspberry-pi-4版usb直結) を参照。CRSF/HIDパケット処理のロジック
+  (`crsf.c` / `hid_parser.c` / `recorder.c` のRAM部分)はプラットフォーム非依存で両方から使う。
 
 ## システム構成
 
@@ -30,6 +36,89 @@ Raspberry Pi Pico
 PICO_SDK_PATH=/Users/akihito/pico-sdk PICO_TOOLCHAIN_PATH=/Users/akihito/gcc-arm-none-eabi cmake ..
 ```
 ※ SDK内 `hcd_rp2040.c` にF310用のローカル改変（DATA1ワークアラウンド）があり、SDKを入れ直すと失われる。
+
+## Raspberry Pi 4版（USB直結）
+
+ゲームパッドをPi4のUSBポートへ直接挿す構成。Pico版のCRSF/HIDパーサ/レコーダー
+ロジック（`crsf.c` / `hid_parser.c` / `recorder.c`）はPico非依存のC言語なのでそのまま流用し、
+USBホスト(TinyUSB)・UART・フラッシュ書込みだけをLinuxネイティブ実装に差し替えている
+（`src/main.c` / `src/usb_gamepad.c` / `src/recorder.c` の `#elif defined(BUILD_PI4)` 部分）。
+
+```
+USBゲームパッド
+    ↓ USB Host (hidraw, Pi4のUSBポートに直挿し)
+Raspberry Pi 4
+    └→ GPIO12(UART5 TX)/GPIO13(RX) (CRSF 921.6kbps, 要 外付け信号反転) → BetaFPV Nano TX Module V2
+標準入力/出力（SSH等）でコマンド入力・ログ確認（d/s/p/i/m/?コマンドはPico版のUARTコマンドと同じ）
+```
+
+### ビルド・実行（Pi4本体上で直接ビルドする。クロスコンパイル不要）
+```bash
+mkdir build && cd build
+cmake -DBUILD_PI4=ON ..
+make
+./expresslrs_realtime_recorder_pi4
+```
+- Ctrl+C (SIGINT/SIGTERM) で記録中なら保存してから終了する。
+- 標準入力をcbreakモードにするため、SSH等の対話端末で実行すればEnter不要の単発キーで
+  コマンド操作できる（`?`でヘルプ表示）。systemdサービス等TTYが無い実行では
+  コマンド入力は単に無効になるだけで、CRSF送信自体は継続する。
+
+### ボタン/LEDは無し（現状はコア機能のみ）
+Pico版の物理ボタン(GP2/GP6)・LED(GP10-14)はPi4版には実装していない。
+モード循環・入力プロファイル切替は標準入力コマンドで行う:
+
+| コマンド | 動作 |
+|---|---|
+| `m` | モード循環 SIMPLE→RECORD→PLAYBACK→…（Pico版のGP2ボタン相当） |
+| `i` | 入力プロファイル切替 GENERIC⇔LITERADIO（Pico版のGP6ボタン相当） |
+| `p` | PLAYBACK中の再生start/stop |
+| `d` | 次フレームの全段スナップショット |
+| `s` | 連続ストリームON/OFF |
+| `?` | ヘルプ |
+
+必要になれば物理ボタン/LEDをlibgpiod等で追加することは可能（今回は見送り）。
+
+### CRSF UART: GPIO12/13 (UART5) — 信号反転には外付け回路が必要
+- `/dev/ttyAMA5`（`config.txt` の `dtoverlay=uart5` でGPIO12=TX/13=RX/14=CTS/15=RTSが有効化される）
+  を921600bps 8N1で使う。
+- ⚠️ **`dtoverlay=uart5,txd5_invert` は効いていない**: `txd5_invert` は公式`uart5`オーバーレイの
+  パラメータとして存在しない（`/boot/firmware/overlays/README`・`uart5.dtbo` を確認済み、
+  受理される param は `ctsrts`/`rs485`系のみ）。起動はするが信号反転は行われていない。
+- BCM2711のPL011は、RP2040のGPIOオーバーライド（`gpio_set_outover`/`gpio_set_inover`）に相当する
+  ハードウェア信号反転機能を持たない。よって **Nano TX Module V2の反転S.Port信号に合わせるには
+  GPIO12/13とモジュールの間に外付けの信号反転回路が必須**（ソフトウェアだけでは解決できない）。
+  - 標準的な解決策: NPNトランジスタ1〜2個によるFrSky S.Port用インバータ回路
+    （FPVコミュニティで広く使われる定番回路。TX→ベース、コレクタをプルアップ抵抗経由で
+    バス、という構成でTXを反転しつつ半二重バスに合流させる）。市販の「S.Port/FrSkyインバータ
+    モジュール」を使ってもよい。
+  - 配線・実装が済むまでは、`init_crsf_uart()` はUARTのオープンにさえ失敗しなければ動作し続ける
+    （CRSF出力は「信号が正しく反転されていないだけ」の状態で送出される）。実機に繋ぐ前に
+    テスターやロジックアナライザで反転が機能しているか必ず確認すること。
+- 半二重テレメトリドレイン（`crsf_drain_telemetry()`）で **`tcdrain()`（`TCSBRK` ioctl）を意図的に
+  呼んでいない**: 実測でこの機体のPL011ドライバは`tcdrain()`1回に約8ms かかり
+  （Picoの`uart_tx_wait_blocking()`のようなレジスタ直読みの即時ポーリングとは違い、
+  ジフィー単位のポーリング実装らしい）、500Hz送信の2ms予算を大きく超えて詰まる。
+  26バイト@921600bpsの送信自体は約280usで終わるため、後続の最大300usアイドル検出ループの
+  中で自然に完了を待つ設計にしている。今後Linuxカーネル/ドライバ側の挙動が変わった場合は
+  再測定すること。
+
+### USBゲームパッド: hidraw経由
+- 起動時に `/dev/hidraw0`〜`/dev/hidraw15` を走査し、VID/PID専用パーサ対象（DS4/F310）か
+  ディスクリプタ解析で軸が見つかったデバイスを最初の1つ選んで使う。
+  環境変数 `GAMEPAD_HIDRAW=/dev/hidrawN` で明示指定も可能（複数HID機器がある場合用）。
+- 切断は検知して自動的に再走査する（フェイルセーフ値の送出はPico版と同じ）。
+- ⚠️ **hidrawは既定でrootのみアクセス可能**。一般ユーザで使うには udev ルールが必要
+  （本プロジェクトでは `/etc/udev/rules.d/99-expresslrs-hidraw.rules` に
+  `KERNEL=="hidraw*", SUBSYSTEM=="hidraw", MODE="0660", GROUP="plugdev"` を追加し、
+  実行ユーザを `plugdev` グループに入れて解決済み）。新しいPi4環境で使う場合は同様の設定が要る。
+- 実機確認済み(2026-09-02): Logitech F310 (VID 046D/PID C216) をdrone-dev01のUSBポートに直挿しし、
+  VID/PID専用パーサで正しく認識、CRSF送信ループが実測でも安定して500Hz(2.00ms周期)で回ることを確認。
+
+### 記録データの保存先（フラッシュの代わりにファイル）
+- 既定: `~/.expresslrs_recorder/flight.log`（ヘッダ+パック済みpayloadの連結。Pico版のフラッシュ
+  ログと同じフォーマット）。環境変数 `RECORDER_LOG_PATH` で保存先を上書き可能。
+- RECORDを抜けた時点でRAMバッファをまとめてファイルへ書き出す（Pico版と同じタイミング）。
 
 ## ピン配置
 | Picoピン | 機能 | 接続先 |

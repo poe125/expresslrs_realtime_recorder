@@ -145,12 +145,92 @@ const uint8_t* recorder_flash_sample(uint32_t idx) {
                              + (size_t)idx * REC_SAMPLE_BYTES);
 }
 
+#elif defined(BUILD_PI4)
+// Raspberry Pi 4 (Linux) 用: フラッシュの代わりに通常のファイルへ保存する。
+// 保存先は環境変数 RECORDER_LOG_PATH で上書き可能。既定は
+// ~/.expresslrs_recorder/flight.log（Picoのファイル形式=ヘッダ+パック済み
+// payload の連結、をそのままファイルに書く）。
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+
+static const char* log_path(void) {
+    static char path[512];
+    const char *override = getenv("RECORDER_LOG_PATH");
+    if (override && override[0] != '\0') {
+        snprintf(path, sizeof(path), "%s", override);
+        return path;
+    }
+    const char *home = getenv("HOME");
+    if (!home || home[0] == '\0') home = "/tmp";
+    char dir[480];
+    snprintf(dir, sizeof(dir), "%s/.expresslrs_recorder", home);
+    mkdir(dir, 0755);  // 既存でもOK。エラーは意図的に無視。
+    snprintf(path, sizeof(path), "%s/flight.log", dir);
+    return path;
+}
+
+// 読出し用キャッシュ（ファイル全体をRAMへロードしてXIP相当のポインタ参照を可能にする）
+static uint8_t  flash_read_buf[REC_MAX_SAMPLES * REC_SAMPLE_BYTES];
+static uint32_t flash_sample_count_cache = 0;
+static bool     flash_loaded = false;
+
+static void flash_write_log(uint32_t count) {
+    FILE *f = fopen(log_path(), "wb");
+    if (!f) {
+        perror("recorder: failed to open log file for write");
+        return;
+    }
+    rec_header_t h = {
+        .magic = REC_MAGIC, .version = 1, .rate_hz = REC_RATE_HZ,
+        .sample_count = count, .sample_bytes = REC_SAMPLE_BYTES, .reserved = 0,
+    };
+    fwrite(&h, sizeof(h), 1, f);
+    if (count > 0) {
+        fwrite(rec_buf, REC_SAMPLE_BYTES, count, f);
+    }
+    fclose(f);
+    printf("# recording saved to %s (%u samples)\n", log_path(), (unsigned)count);
+    flash_loaded = false;  // 直後のPLAYBACKで今回の書込みが読めるようキャッシュを破棄
+}
+
+static void flash_load_if_needed(void) {
+    if (flash_loaded) return;
+    flash_loaded = true;
+    flash_sample_count_cache = 0;
+
+    FILE *f = fopen(log_path(), "rb");
+    if (!f) return;  // 記録がまだ無い
+
+    rec_header_t h;
+    if (fread(&h, sizeof(h), 1, f) != 1 ||
+        h.magic != REC_MAGIC ||
+        h.sample_bytes != REC_SAMPLE_BYTES ||
+        h.sample_count > REC_MAX_SAMPLES) {
+        fclose(f);
+        return;
+    }
+    flash_sample_count_cache = (uint32_t)fread(flash_read_buf, REC_SAMPLE_BYTES, h.sample_count, f);
+    fclose(f);
+}
+
+uint32_t recorder_flash_sample_count(void) {
+    flash_load_if_needed();
+    return flash_sample_count_cache;
+}
+
+const uint8_t* recorder_flash_sample(uint32_t idx) {
+    flash_load_if_needed();
+    if (idx >= flash_sample_count_cache) return NULL;
+    return &flash_read_buf[idx * REC_SAMPLE_BYTES];
+}
+
 #else
 // ホスト（テスト）ではフラッシュ無し。書出しはno-op、読出しは空。
 static void flash_write_log(uint32_t count) { (void)count; }
 uint32_t recorder_flash_sample_count(void) { return 0; }
 const uint8_t* recorder_flash_sample(uint32_t idx) { (void)idx; return NULL; }
-#endif // PICO_BOARD
+#endif // PICO_BOARD / BUILD_PI4
 
 size_t recorder_stop_and_flush(void) {
     rec_active = false;

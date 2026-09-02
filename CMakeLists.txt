@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
 
-# テストビルドかPicoビルドかを判定
+# テストビルド/Picoビルド/Pi4ビルドを判定
 option(BUILD_TESTS "Build unit tests for host" OFF)
+option(BUILD_PI4 "Build native Raspberry Pi 4 application (run cmake directly on the Pi)" OFF)
 
 if(BUILD_TESTS)
     # ======================================
@@ -90,6 +91,29 @@ if(BUILD_TESTS)
     add_test(NAME test_usb_gamepad COMMAND test_usb_gamepad)
     add_test(NAME test_hid_parser  COMMAND test_hid_parser)
     add_test(NAME test_recorder    COMMAND test_recorder)
+
+elseif(BUILD_PI4)
+    # ======================================
+    # Raspberry Pi 4 ネイティブビルド
+    # ======================================
+    # Pi4本体上で直接ビルドする（クロスコンパイル不要）。
+    # USB HIDはLinuxのhidraw、CRSF出力はUART5(/dev/ttyAMA5)経由。
+    project(expresslrs_realtime_recorder_pi4 C)
+
+    set(CMAKE_C_STANDARD 11)
+    set(CMAKE_C_STANDARD_REQUIRED ON)
+
+    add_executable(expresslrs_realtime_recorder_pi4
+        src/main.c
+        src/crsf.c
+        src/usb_gamepad.c
+        src/hid_parser.c
+        src/recorder.c
+    )
+
+    target_include_directories(expresslrs_realtime_recorder_pi4 PRIVATE include)
+    target_compile_definitions(expresslrs_realtime_recorder_pi4 PRIVATE BUILD_PI4 _GNU_SOURCE)
+    target_link_libraries(expresslrs_realtime_recorder_pi4 rt)
 
 else()
     # ======================================

@@ -21,7 +21,8 @@ if [ -z "$SERIAL_PORT" ]; then
     for pat in \
         /dev/cu.usbserial-* /dev/cu.SLAB_USBtoUART* /dev/cu.wchusbserial* \
         /dev/cu.usbmodem* /dev/tty.usbserial-* /dev/tty.SLAB_USBtoUART* \
-        /dev/tty.wchusbserial* /dev/tty.usbmodem*; do
+        /dev/tty.wchusbserial* /dev/tty.usbmodem* \
+        /dev/ttyUSB* /dev/ttyACM*; do
         p=$(ls $pat 2>/dev/null | head -n1)
         if [ -n "$p" ]; then SERIAL_PORT="$p"; break; fi
     done
@@ -35,9 +36,9 @@ if [ -z "$SERIAL_PORT" ]; then
     echo "  2. Pico GP4(TX) → 変換の RXD, GND 共通が配線されているか"
     echo ""
     echo "利用可能なシリアルポート:"
-    ls /dev/cu.* 2>/dev/null || echo "  (なし)"
+    ls /dev/cu.* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || echo "  (なし)"
     echo ""
-    echo "ポートを明示指定するには: ./scripts/monitor.sh $BAUD_RATE /dev/cu.usbserial-XXXX"
+    echo "ポートを明示指定するには: ./scripts/monitor.sh $BAUD_RATE /dev/ttyUSB0  (macOSは /dev/cu.usbserial-XXXX)"
     exit 1
 fi
 

@@ -8,8 +8,11 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$PROJECT_DIR/build"
 UF2_FILE="$BUILD_DIR/expresslrs_realtime_recorder.uf2"
 
-# Picoのマウントポイント（macOS）
-PICO_MOUNT="/Volumes/RPI-RP2"
+# Picoのマウントポイント（macOS/Linux両対応で探索）
+PICO_MOUNT=""
+for cand in /Volumes/RPI-RP2 "/media/$USER/RPI-RP2" "/run/media/$USER/RPI-RP2" /media/RPI-RP2; do
+    if [ -d "$cand" ]; then PICO_MOUNT="$cand"; break; fi
+done
 
 echo "=== ExpressLRS Realtime Recorder Flash Tool ==="
 
@@ -21,7 +24,7 @@ if [ ! -f "$UF2_FILE" ]; then
 fi
 
 # Picoがマウントされているか確認
-if [ ! -d "$PICO_MOUNT" ]; then
+if [ -z "$PICO_MOUNT" ]; then
     echo "Error: Pico が見つかりません"
     echo ""
     echo "手順:"
