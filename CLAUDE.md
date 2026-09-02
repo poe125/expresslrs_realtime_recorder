@@ -95,6 +95,9 @@ Pico版の物理ボタン(GP2/GP6)・LED(GP10-14)はPi4版には実装してい�
   - 配線・実装が済むまでは、`init_crsf_uart()` はUARTのオープンにさえ失敗しなければ動作し続ける
     （CRSF出力は「信号が正しく反転されていないだけ」の状態で送出される）。実機に繋ぐ前に
     テスターやロジックアナライザで反転が機能しているか必ず確認すること。
+  - **実機確認済み(2026-09-02)**: drone-dev01でインバータ回路を配線し、GPIO12/13→インバータ→
+    Nano TX Module V2→Pavo Pico IIの経路でエンドツーエンド確認。Pi4版バイナリでゲームパッド操作を
+    Betaflight ConfiguratorのReceiverタブで追従確認（Nano TXのLEDも紫点灯に変化）。
 - 半二重テレメトリドレイン（`crsf_drain_telemetry()`）で **`tcdrain()`（`TCSBRK` ioctl）を意図的に
   呼んでいない**: 実測でこの機体のPL011ドライバは`tcdrain()`1回に約8ms かかり
   （Picoの`uart_tx_wait_blocking()`のようなレジスタ直読みの即時ポーリングとは違い、
